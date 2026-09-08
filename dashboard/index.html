@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="BookNet — apresentação acadêmica da arquitetura de um sistema distribuído para uma biblioteca universitária. Checkpoint 01, versão V0.">
+  <meta name="theme-color" content="#176b52">
+  <title>BookNet · Sistemas Distribuídos</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="style.css">
+  <script src="script.js" defer></script>
+</head>
+<body id="topo">
+  <a class="skip-link" href="#conteudo">Pular para o conteúdo</a>
+  <svg class="icon-definitions" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <symbol id="icon-book" viewBox="0 0 24 24"><path d="M12 5v15M3 4c4-1 6 0 9 2 3-2 5-3 9-2v15c-4-1-6 0-9 2-3-2-5-3-9-2Z"/></symbol>
+    <symbol id="icon-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></symbol>
+    <symbol id="icon-network" viewBox="0 0 24 24"><rect x="9" y="2" width="6" height="5" rx="1"/><rect x="2" y="17" width="6" height="5" rx="1"/><rect x="16" y="17" width="6" height="5" rx="1"/><path d="M12 7v5M5 17v-5h14v5"/></symbol>
+    <symbol id="icon-layers" viewBox="0 0 24 24"><path d="m12 3 10 5-10 5L2 8Zm-10 9 10 5 10-5M2 16l10 5 10-5"/></symbol>
+    <symbol id="icon-arrows" viewBox="0 0 24 24"><path d="M3 7h17m-5-5 5 5-5 5M21 17H4m5-5-5 5 5 5"/></symbol>
+    <symbol id="icon-alert" viewBox="0 0 24 24"><path d="m10.3 3.7-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.7-3.3l-8-14a2 2 0 0 0-3.4 0ZM12 9v4m0 4h.01"/></symbol>
+    <symbol id="icon-route" viewBox="0 0 24 24"><circle cx="5" cy="5" r="2"/><circle cx="19" cy="19" r="2"/><path d="M7 5h10a4 4 0 0 1 0 8H7a3 3 0 0 0 0 6h10"/></symbol>
+    <symbol id="icon-users" viewBox="0 0 24 24"><circle cx="9" cy="7" r="4"/><path d="M2 21v-3a7 7 0 0 1 14 0v3M16 3a4 4 0 0 1 0 8m2 3a5 5 0 0 1 4 5v2"/></symbol>
+    <symbol id="icon-monitor" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8m-4-4v4"/></symbol>
+    <symbol id="icon-database" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 4 18 4 18 0V5M3 12c0 4 18 4 18 0"/></symbol>
+    <symbol id="icon-arrow" viewBox="0 0 24 24"><path d="M4 12h16m-6-6 6 6-6 6"/></symbol>
+    <symbol id="icon-file" viewBox="0 0 24 24"><path d="M14 2H5a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9Zm0 0v7h7M7 14h10M7 18h7"/></symbol>
+  </svg>
+
+  <aside class="sidebar" aria-label="Painel do projeto">
+    <a class="brand" href="#visao-geral" aria-label="BookNet — início">
+      <span class="brand-mark"><svg class="icon" aria-hidden="true"><use href="#icon-book"/></svg></span>
+      <span>booknet<span class="brand-caption">SISTEMAS DISTRIBUÍDOS</span></span>
+    </a>
+    <p class="sidebar-label">EXPLORAR O PROJETO</p>
+    <nav class="section-nav" aria-label="Seções do projeto">
+      <a class="nav-link is-active" href="#visao-geral" aria-current="location"><svg class="icon" aria-hidden="true"><use href="#icon-grid"/></svg>Visão Geral<span class="nav-number">01</span></a>
+      <a class="nav-link" href="#arquitetura"><svg class="icon" aria-hidden="true"><use href="#icon-network"/></svg>Arquitetura<span class="nav-number">02</span></a>
+      <a class="nav-link" href="#componentes"><svg class="icon" aria-hidden="true"><use href="#icon-layers"/></svg>Componentes<span class="nav-number">03</span></a>
+      <a class="nav-link" href="#comunicacao"><svg class="icon" aria-hidden="true"><use href="#icon-arrows"/></svg>Comunicação<span class="nav-number">04</span></a>
+      <a class="nav-link" href="#falhas"><svg class="icon" aria-hidden="true"><use href="#icon-alert"/></svg>Falhas<span class="nav-number">05</span></a>
+      <a class="nav-link" href="#evolucao"><svg class="icon" aria-hidden="true"><use href="#icon-route"/></svg>Evolução<span class="nav-number">06</span></a>
+    </nav>
+    <div class="sidebar-bottom">
+      <div class="checkpoint-note"><span class="status-dot" aria-hidden="true"></span><strong>Uma etapa de cada vez.</strong><p>Ideia e arquitetura definidas.<br>O próximo passo é conectar.</p><a href="#evolucao">Acompanhar evolução <span aria-hidden="true">↗</span></a></div>
+      <a class="documentation-link" href="../docs/arquitetura.md"><svg class="icon" aria-hidden="true"><use href="#icon-file"/></svg>Documentação <span aria-hidden="true">↗</span></a>
+      <p class="sidebar-footnote">Projeto acadêmico · V0</p>
+    </div>
+  </aside>
+
+  <div class="page">
+    <header class="topbar"><p>Sistemas Distribuídos <span aria-hidden="true">/</span> <strong>Apresentação do projeto</strong></p><span class="badge badge-outline"><span class="status-dot" aria-hidden="true"></span>Checkpoint 01 · V0</span></header>
+    <main id="conteudo" tabindex="-1">
+      <section class="section overview" id="visao-geral" aria-labelledby="titulo-visao">
+        <div class="section-heading"><div><p class="eyebrow">01 / O PROJETO</p><h1 id="titulo-visao">Visão geral</h1><p>O ponto de partida de uma biblioteca conectada.</p></div><span class="quiet-label">IDEIA &amp; ARQUITETURA</span></div>
+
+        <div class="hero">
+          <div class="hero-copy"><span class="hero-eyebrow">CONHECIMENTO ORGANIZADO, RESPONSABILIDADES CONECTADAS</span><h2>BookNet<span>.</span></h2><p class="hero-subtitle">Sistema Distribuído de Gerenciamento<br class="desktop-break"> de Biblioteca Universitária</p><p class="hero-description">Catálogo, usuários e empréstimos em componentes que poderão se comunicar pela rede. Um projeto que evolui junto com a disciplina.</p><div class="hero-team"><span class="team-avatars" aria-hidden="true"><span>A</span><span>JH</span><span>LF</span></span><div><span class="small-label">DESENVOLVIDO POR</span><p>André <span>·</span> João Henrique <span>·</span> Luiz Felipe</p></div></div></div>
+          <div class="hero-art" aria-hidden="true"><div class="art-orbit orbit-one"></div><div class="art-orbit orbit-two"></div><span class="art-dot dot-one"></span><span class="art-dot dot-two"></span><span class="art-plus">+</span><div class="book-stack"><div class="art-book book-back"><i></i><span>USUÁRIOS</span></div><div class="art-book book-middle"><i></i><span>CATÁLOGO</span></div><div class="art-book book-front"><i></i><svg class="icon"><use href="#icon-network"/></svg><span>BOOKNET</span></div></div><span class="art-caption">CONECTAR · ORGANIZAR · EVOLUIR</span></div>
+        </div>
+
+        <div class="stats-grid" aria-label="Resumo do planejamento">
+          <div class="stat-card"><span class="icon-tile"><svg class="icon" aria-hidden="true"><use href="#icon-layers"/></svg></span><div><strong>05 <span>componentes</span></strong><p>Responsabilidades definidas</p></div></div>
+          <div class="stat-card"><span class="icon-tile"><svg class="icon" aria-hidden="true"><use href="#icon-users"/></svg></span><div><strong>02 <span>perfis de usuário</span></strong><p>Aluno e bibliotecário</p></div></div>
+          <div class="stat-card"><span class="icon-tile"><svg class="icon" aria-hidden="true"><use href="#icon-route"/></svg></span><div><strong>07 <span>etapas previstas</span></strong><p>Da ideia à orquestração</p></div></div>
+        </div>
+
+        <div class="overview-grid">
+          <article class="card context-card reveal"><span class="card-kicker">O CONTEXTO</span><h3>Organizar a biblioteca.<br>Entender a distribuição.</h3><dl><dt>O problema</dt><dd>Uma biblioteca universitária precisa organizar o acervo, identificar seus usuários e acompanhar a circulação dos exemplares.</dd><dt>Nosso objetivo</dt><dd>Planejar esse gerenciamento em componentes com responsabilidades claras, aplicando os conceitos de Sistemas Distribuídos.</dd></dl></article>
+          <article class="card users-card reveal"><div class="card-title-row"><h3>Para quem estamos construindo?</h3><span class="badge badge-neutral">Escopo futuro</span></div><div class="user-profile"><span class="profile-icon" aria-hidden="true">A</span><div><h4>Aluno</h4><p>Pesquisar livros, verificar disponibilidade, solicitar empréstimos, devolver livros e consultar seus empréstimos.</p></div></div><div class="user-profile"><span class="profile-icon librarian" aria-hidden="true">B</span><div><h4>Bibliotecário</h4><p>Cadastrar e alterar livros, consultar usuários e acompanhar empréstimos.</p></div></div><p class="card-footnote">Essas funcionalidades serão desenvolvidas nas próximas versões.</p></article>
+        </div>
+        <aside class="scope-note"><span class="note-symbol" aria-hidden="true">i</span><p><strong>O que está pronto na V0?</strong> A ideia, a arquitetura conceitual, a documentação e esta apresentação. Os serviços ainda não estão implementados.</p></aside>
+      </section>
+
+      <section class="section" id="arquitetura" aria-labelledby="titulo-arquitetura">
+        <div class="section-heading"><div><p class="eyebrow">02 / A ESTRUTURA</p><h2 id="titulo-arquitetura">Arquitetura do sistema</h2><p>Cinco componentes. Uma responsabilidade para cada parte.</p></div><a class="text-link" href="../docs/arquitetura.svg">Abrir diagrama SVG <span aria-hidden="true">↗</span></a></div>
+        <figure class="card architecture-card reveal">
+          <div class="diagram-heading"><span class="card-kicker">VISÃO CONCEITUAL</span><span class="badge badge-neutral">Planejamento · V0</span></div>
+          <div class="architecture-network" role="img" aria-label="Arquitetura planejada: o Cliente Web envia requisições HTTP/REST aos serviços de Usuários, Catálogo e Empréstimos. Os três serviços acessam conceitualmente o Banco de Dados. Empréstimos também consulta diretamente Usuários e Catálogo.">
+            <div class="diagram-node client-node"><span class="node-icon"><svg class="icon" aria-hidden="true"><use href="#icon-monitor"/></svg></span><div><strong>Cliente Web</strong><span>Aluno e bibliotecário</span></div></div>
+            <div class="protocol-line"><span>HTTP / REST</span></div>
+            <div class="service-branch" aria-hidden="true"><i></i><i></i><i></i></div>
+            <div class="service-nodes">
+              <div class="diagram-node"><span class="node-icon"><svg class="icon" aria-hidden="true"><use href="#icon-users"/></svg></span><strong>Serviço de Usuários</strong><span>Identidade e perfis</span></div>
+              <div class="diagram-node"><span class="node-icon"><svg class="icon" aria-hidden="true"><use href="#icon-book"/></svg></span><strong>Serviço de Catálogo</strong><span>Livros e exemplares</span></div>
+              <div class="diagram-node"><span class="node-icon"><svg class="icon" aria-hidden="true"><use href="#icon-arrows"/></svg></span><strong>Serviço de Empréstimos</strong><span>Empréstimos e devoluções</span></div>
+            </div>
+            <div class="database-branch" aria-hidden="true"><i></i><i></i><i></i></div>
+            <div class="storage-line"><span>Persistência planejada</span></div>
+            <div class="diagram-node database-node"><span class="node-icon"><svg class="icon" aria-hidden="true"><use href="#icon-database"/></svg></span><div><strong>Banco de Dados</strong><span>SQLite como possibilidade inicial</span></div></div>
+          </div>
+          <div class="consultation-routes"><p class="card-kicker">CONSULTAS DIRETAS PLANEJADAS</p><div class="route-list"><div class="consultation-route"><span>Empréstimos</span><span class="route-arrow" aria-hidden="true">→</span><span>Usuários</span><small>O usuário existe?</small></div><div class="consultation-route"><span>Empréstimos</span><span class="route-arrow" aria-hidden="true">→</span><span>Catálogo</span><small>O exemplar está disponível?</small></div></div></div>
+          <figcaption>As setas indicam o sentido das solicitações. As respostas retornam ao solicitante; nenhuma comunicação real é executada nesta versão.</figcaption>
+        </figure>
+        <div class="distribution-note reveal"><span class="icon-tile"><svg class="icon" aria-hidden="true"><use href="#icon-network"/></svg></span><div><h3>Por que uma arquitetura distribuída?</h3><p>O BookNet prevê componentes independentes para usuários, catálogo e empréstimos, que se comunicarão pela rede e poderão evoluir separadamente. Essa organização permite estudar comunicação entre processos, concorrência, disponibilidade, escalabilidade e tolerância a falhas. Uma falha em um serviço não precisa interromper todas as funcionalidades.</p><p class="academic-note">Para uma biblioteca pequena, uma aplicação monolítica poderia ser suficiente. Neste projeto, a arquitetura distribuída foi escolhida principalmente para permitir a aplicação prática dos conceitos estudados na disciplina.</p></div></div>
+      </section>
+
+      <section class="section" id="componentes" aria-labelledby="titulo-componentes">
+        <div class="section-heading"><div><p class="eyebrow">03 / AS RESPONSABILIDADES</p><h2 id="titulo-componentes">Peças de um mesmo sistema</h2><p>Limites definidos agora para orientar as próximas implementações.</p></div><span class="quiet-label">5 COMPONENTES PLANEJADOS</span></div>
+        <div class="components-grid">
+          <article class="card component-card reveal"><div class="component-top"><span class="icon-tile"><svg class="icon" aria-hidden="true"><use href="#icon-monitor"/></svg></span><span class="component-number">01</span></div><h3>Cliente Web</h3><p>Interface para alunos e bibliotecários. Futuramente enviará requisições HTTP aos serviços.</p><div class="component-meta"><span>INTERFACE</span><span>HTML · CSS · JS</span></div></article>
+          <article class="card component-card reveal"><div class="component-top"><span class="icon-tile"><svg class="icon" aria-hidden="true"><use href="#icon-users"/></svg></span><span class="component-number">02</span></div><h3>Serviço de Usuários</h3><p>Gerenciará os dados dos alunos e bibliotecários e permitirá verificar a existência de um usuário.</p><div class="component-meta"><span>MODELO CONCEITUAL</span><code>Usuario</code></div></article>
+          <article class="card component-card reveal"><div class="component-top"><span class="icon-tile"><svg class="icon" aria-hidden="true"><use href="#icon-book"/></svg></span><span class="component-number">03</span></div><h3>Serviço de Catálogo</h3><p>Organizará os livros e seus exemplares, incluindo as informações de disponibilidade de cada exemplar.</p><div class="component-meta"><span>MODELOS CONCEITUAIS</span><code>Livro · Exemplar</code></div></article>
+          <article class="card component-card reveal"><div class="component-top"><span class="icon-tile"><svg class="icon" aria-hidden="true"><use href="#icon-arrows"/></svg></span><span class="component-number">04</span></div><h3>Serviço de Empréstimos</h3><p>Gerenciará empréstimos e devoluções. Consultará Usuários e Catálogo antes de registrar um empréstimo.</p><div class="component-meta"><span>MODELO CONCEITUAL</span><code>Emprestimo</code></div></article>
+          <article class="card component-card reveal"><div class="component-top"><span class="icon-tile"><svg class="icon" aria-hidden="true"><use href="#icon-database"/></svg></span><span class="component-number">05</span></div><h3>Banco de Dados</h3><p>Persistirá usuários, livros, exemplares e empréstimos. SQLite poderá ser adotado na primeira implementação e evoluir depois.</p><div class="component-meta"><span>PERSISTÊNCIA FUTURA</span><span>SQLite em avaliação</span></div></article>
+        </div>
+        <p class="section-footnote">Campos, tipos e estados dos modelos estão descritos na <a href="../docs/arquitetura.md">documentação da arquitetura <span aria-hidden="true">↗</span></a>.</p>
+      </section>
+
+      <section class="section" id="comunicacao" aria-labelledby="titulo-comunicacao">
+        <div class="section-heading"><div><p class="eyebrow">04 / AS CONEXÕES</p><h2 id="titulo-comunicacao">O caminho de um empréstimo</h2><p>Uma solicitação, diferentes responsabilidades trabalhando em conjunto.</p></div><span class="badge badge-outline">Fluxo conceitual</span></div>
+        <div class="communication-grid">
+          <div class="card flow-card reveal"><div class="card-title-row"><h3>Da escolha à confirmação</h3><span class="quiet-label">HTTP / REST</span></div><ol class="loan-flow">
+            <li><span class="step-number">1</span><div><h4>O aluno escolhe um livro</h4><p>A interação começa no Cliente Web.</p></div><span class="flow-tag">Aluno</span></li>
+            <li><span class="step-number">2</span><div><h4>O cliente solicita o empréstimo</h4><p>Cliente Web <span aria-hidden="true">→</span> Serviço de Empréstimos</p><code>POST /emprestimos</code></div></li>
+            <li><span class="step-number">3</span><div><h4>O usuário existe?</h4><p>Empréstimos <span aria-hidden="true">→</span> Serviço de Usuários</p></div></li>
+            <li><span class="step-number">4</span><div><h4>O exemplar está disponível?</h4><p>Empréstimos <span aria-hidden="true">→</span> Serviço de Catálogo</p></div></li>
+            <li><span class="step-number">5</span><div><h4>O empréstimo é criado</h4><p>Somente se o usuário existir e o exemplar estiver disponível, o registro será persistido.</p></div></li>
+            <li><span class="step-number">6</span><div><h4>A confirmação volta ao cliente</h4><p>Serviço de Empréstimos <span aria-hidden="true">→</span> Cliente Web <span aria-hidden="true">→</span> Aluno</p></div></li>
+          </ol></div>
+          <aside class="communication-aside"><div class="card ports-card reveal"><span class="icon-tile"><svg class="icon" aria-hidden="true"><use href="#icon-arrows"/></svg></span><h3>Comunicação pela rede</h3><p>HTTP/REST é a tecnologia planejada inicialmente para as requisições entre os componentes.</p><div class="ports-heading"><h4>Portas futuras</h4><span class="badge badge-neutral">Planejamento</span></div><dl class="port-list"><div><dt>Catálogo</dt><dd><code>8001</code></dd></div><div><dt>Usuários</dt><dd><code>8002</code></dd></div><div><dt>Empréstimos</dt><dd><code>8003</code></dd></div></dl><p class="card-footnote">Os serviços ainda não estão implementados na V0. Estas portas são apenas referências para o futuro.</p></div><div class="flow-note"><span class="note-symbol" aria-hidden="true">i</span><p>Esta sequência explica a arquitetura futura. Não envia requisições nem processa empréstimos.</p></div></aside>
+        </div>
+      </section>
+
+      <section class="section" id="falhas" aria-labelledby="titulo-falhas">
+        <div class="section-heading"><div><p class="eyebrow">05 / OS DESAFIOS</p><h2 id="titulo-falhas">Quando algo dá errado</h2><p>Três situações para estudar ao distribuir as responsabilidades.</p></div><span class="quiet-label">CENÁRIOS PARA ANÁLISE</span></div>
+        <div class="failures-grid">
+          <article class="card failure-card reveal"><div class="failure-top"><span class="icon-tile warm"><svg class="icon" aria-hidden="true"><use href="#icon-alert"/></svg></span><span class="component-number">01</span></div><h3>Serviço indisponível</h3><dl><dt>Cenário</dt><dd>O Serviço de Empréstimos fica offline.</dd><dt>Consequência</dt><dd>O aluno ainda poderia consultar o catálogo, mas não conseguiria realizar empréstimos.</dd></dl><div class="concept-tags"><span>Disponibilidade</span><span>Tolerância a falhas</span></div></article>
+          <article class="card failure-card reveal"><div class="failure-top"><span class="icon-tile warm"><svg class="icon" aria-hidden="true"><use href="#icon-users"/></svg></span><span class="component-number">02</span></div><h3>Concorrência entre usuários</h3><dl><dt>Cenário</dt><dd>Dois usuários tentam pegar o mesmo exemplar ao mesmo tempo.</dd><dt>Consequência</dt><dd>Sem controle adequado, poderiam ser registrados dois empréstimos para um único exemplar.</dd></dl><div class="concept-tags"><span>Concorrência</span><span>Consistência</span></div></article>
+          <article class="card failure-card reveal"><div class="failure-top"><span class="icon-tile warm"><svg class="icon" aria-hidden="true"><use href="#icon-arrows"/></svg></span><span class="component-number">03</span></div><h3>Falha de comunicação entre serviços</h3><dl><dt>Cenário</dt><dd>Empréstimos consulta Catálogo, mas a rede falha ou a resposta não chega.</dd><dt>Consequência</dt><dd>Não é possível confirmar se o exemplar está disponível para empréstimo.</dd></dl><div class="concept-tags"><span>Rede / timeout</span><span>Comunicação distribuída</span></div></article>
+        </div><p class="section-footnote">Na V0, esses cenários estão documentados. A investigação e a implementação de soluções fazem parte da evolução do projeto.</p>
+      </section>
+
+      <section class="section" id="evolucao" aria-labelledby="titulo-evolucao">
+        <div class="section-heading"><div><p class="eyebrow">06 / OS PRÓXIMOS PASSOS</p><h2 id="titulo-evolucao">Uma construção por etapas</h2><p>Da arquitetura no papel aos conceitos em prática.</p></div><span class="quiet-label">V0 → V6</span></div>
+        <div class="card evolution-card reveal"><div class="evolution-intro"><div><span class="badge badge-success"><span aria-hidden="true">✓</span> V0 concluída</span><h3>Tudo começa com uma boa estrutura.</h3><p>O primeiro checkpoint reúne a proposta, os componentes e as comunicações planejadas. As próximas versões darão vida à arquitetura.</p></div><span class="evolution-count"><strong>01</strong><span>de 07 etapas concluída</span></span></div><ol class="timeline">
+          <li class="current"><span class="version">V0</span><div><h4>Ideia e arquitetura</h4><span class="timeline-status">Concluída</span></div></li>
+          <li><span class="version">V1</span><div><h4>Cliente-servidor</h4><span class="timeline-status">Próxima etapa</span></div></li>
+          <li><span class="version">V2</span><div><h4>Sockets / mensagens</h4><span class="timeline-status">Futura</span></div></li>
+          <li><span class="version">V3</span><div><h4>Serviços separados</h4><span class="timeline-status">Futura</span></div></li>
+          <li><span class="version">V4</span><div><h4>Docker</h4><span class="timeline-status">Futura</span></div></li>
+          <li><span class="version">V5</span><div><h4>Falhas e recuperação</h4><span class="timeline-status">Futura</span></div></li>
+          <li><span class="version">V6</span><div><h4>Orquestração</h4><span class="timeline-status">Futura</span></div></li>
+        </ol></div>
+        <div class="project-files"><svg class="icon" aria-hidden="true"><use href="#icon-file"/></svg><p>Explore as decisões e os modelos conceituais do projeto.</p><a class="text-link" href="../docs/arquitetura.md">Ler documentação <span aria-hidden="true">↗</span></a></div>
+      </section>
+      <footer class="page-footer"><p><strong>booknet.</strong> <span>Um projeto de Sistemas Distribuídos.</span></p><p>André · João Henrique · Luiz Felipe</p></footer>
+    </main>
+  </div>
+  <a class="back-to-top" href="#topo" aria-label="Voltar ao topo"><span aria-hidden="true">↑</span><span>Voltar ao topo</span></a>
+</body>
+</html>

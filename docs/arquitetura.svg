@@ -1,0 +1,92 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="950" viewBox="0 0 1200 950" role="img" aria-labelledby="title description">
+  <title id="title">BookNet — arquitetura conceitual da V0</title>
+  <desc id="description">O Cliente Web enviará solicitações HTTP/REST aos serviços de Usuários, Catálogo e Empréstimos. Os três serviços acessarão conceitualmente o Banco de Dados. Empréstimos consultará diretamente Usuários para verificar se o usuário existe e Catálogo para verificar a disponibilidade do exemplar. Portas planejadas: Usuários 8002, Catálogo 8001 e Empréstimos 8003. Nenhum serviço está implementado na V0.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M 1 1 L 8 5 L 1 9" fill="none" stroke="#16765d" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+    <marker id="arrow-muted" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M 1 1 L 8 5 L 1 9" fill="none" stroke="#718b83" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+    <style>
+      text { font-family: 'Segoe UI', system-ui, sans-serif; fill: #172e29; }
+      .muted { fill: #50685f; }
+      .eyebrow { font-size: 12px; font-weight: 700; letter-spacing: 2px; }
+      .heading { font-size: 30px; font-weight: 700; }
+      .card-title { font-size: 21px; font-weight: 650; }
+      .body { font-size: 15px; }
+      .small { font-size: 13px; }
+      .card { fill: #fff; stroke: #d5e3dd; stroke-width: 1.5; }
+      .request { fill: none; stroke: #16765d; stroke-width: 2.5; marker-end: url(#arrow); }
+      .query { fill: none; stroke: #16765d; stroke-width: 2.5; stroke-dasharray: 7 6; marker-end: url(#arrow); }
+      .persist { fill: none; stroke: #718b83; stroke-width: 2; }
+    </style>
+  </defs>
+
+  <rect width="1200" height="950" rx="24" fill="#f6f8f7"/>
+  <text x="60" y="51" class="eyebrow" style="fill:#16765d">BOOKNET / SISTEMAS DISTRIBUÍDOS</text>
+  <text x="60" y="96" class="heading">Responsabilidades separadas. Comunicação pela rede.</text>
+  <rect x="1000" y="30" width="140" height="33" rx="16.5" fill="#e4f0e9"/>
+  <text x="1070" y="51" text-anchor="middle" class="small" style="fill:#16765d;font-weight:700">V0 · CONCEITUAL</text>
+
+  <!-- As setas representam solicitações futuras; as respostas fazem o caminho de volta. -->
+  <path d="M 600 255 V 294 H 230 V 350" class="request"/>
+  <path d="M 600 255 V 350" class="request"/>
+  <path d="M 600 255 V 294 H 980 V 350" class="request"/>
+  <rect x="499" y="280" width="202" height="28" rx="14" fill="#f6f8f7"/>
+  <text x="600" y="300" text-anchor="middle" class="body" style="fill:#16765d;font-weight:600">HTTP / REST planejado</text>
+
+  <!-- Persistência conceitual; o protocolo de acesso ao banco ainda não foi definido. -->
+  <path d="M 150 490 V 714 H 1050 V 490 M 530 490 V 714" class="persist"/>
+  <path d="M 600 714 V 771" class="persist" marker-end="url(#arrow-muted)"/>
+  <rect x="453" y="699" width="294" height="28" rx="14" fill="#f6f8f7"/>
+  <text x="600" y="719" text-anchor="middle" class="body muted">Persistência futura dos três serviços</text>
+
+  <!-- Consultas diretas destacadas com linha tracejada. -->
+  <path d="M 830 405 H 790 V 551 H 680 V 490" fill="none" stroke="#f6f8f7" stroke-width="8"/>
+  <path d="M 830 405 H 790 V 551 H 680 V 490" class="query"/>
+  <rect x="799" y="520" width="316" height="61" rx="10" fill="#e4f0e9"/>
+  <text x="817" y="544" class="small" style="font-weight:700;fill:#16765d">EMPRÉSTIMOS → CATÁLOGO</text>
+  <text x="817" y="565" class="body">O exemplar está disponível?</text>
+
+  <path d="M 830 454 H 812 V 629 H 310 V 490" fill="none" stroke="#f6f8f7" stroke-width="8"/>
+  <path d="M 830 454 H 812 V 629 H 310 V 490" class="query"/>
+  <rect x="378" y="595" width="303" height="62" rx="10" fill="#e4f0e9"/>
+  <text x="396" y="619" class="small" style="font-weight:700;fill:#16765d">EMPRÉSTIMOS → USUÁRIOS</text>
+  <text x="396" y="641" class="body">O usuário existe?</text>
+
+  <rect x="425" y="145" width="350" height="110" rx="18" class="card"/>
+  <rect x="448" y="168" width="36" height="36" rx="10" fill="#e4f0e9"/>
+  <path d="M 456 177 H 476 V 191 H 456 Z M 461 197 H 471 M 466 191 V 197" fill="none" stroke="#16765d" stroke-width="1.8" stroke-linejoin="round"/>
+  <text x="500" y="192" class="card-title">Cliente Web</text>
+  <text x="448" y="231" class="body muted">Interface para alunos e bibliotecários</text>
+
+  <rect x="80" y="350" width="300" height="140" rx="18" class="card"/>
+  <text x="104" y="382" class="eyebrow" style="fill:#16765d">SERVIÇO / 01</text>
+  <text x="104" y="414" class="card-title">Usuários</text>
+  <text x="104" y="442" class="body muted">Alunos e bibliotecários</text>
+  <text x="104" y="469" class="small muted">Porta planejada: 8002</text>
+
+  <rect x="450" y="350" width="300" height="140" rx="18" class="card"/>
+  <text x="474" y="382" class="eyebrow" style="fill:#16765d">SERVIÇO / 02</text>
+  <text x="474" y="414" class="card-title">Catálogo</text>
+  <text x="474" y="442" class="body muted">Livros, exemplares e disponibilidade</text>
+  <text x="474" y="469" class="small muted">Porta planejada: 8001</text>
+
+  <rect x="830" y="350" width="300" height="140" rx="18" class="card"/>
+  <text x="854" y="382" class="eyebrow" style="fill:#16765d">SERVIÇO / 03</text>
+  <text x="854" y="414" class="card-title">Empréstimos</text>
+  <text x="854" y="442" class="body muted">Empréstimos e devoluções</text>
+  <text x="854" y="469" class="small muted">Porta planejada: 8003</text>
+
+  <rect x="425" y="772" width="350" height="104" rx="18" class="card"/>
+  <text x="600" y="810" text-anchor="middle" class="card-title">Banco de Dados</text>
+  <text x="600" y="837" text-anchor="middle" class="body muted">Usuários · livros · exemplares · empréstimos</text>
+  <text x="600" y="859" text-anchor="middle" class="small muted">SQLite é uma possibilidade futura</text>
+
+  <path d="M 60 920 H 94" stroke="#16765d" stroke-width="2.5"/>
+  <text x="106" y="925" class="small muted">Solicitações HTTP/REST</text>
+  <path d="M 315 920 H 349" stroke="#16765d" stroke-width="2.5" stroke-dasharray="7 6"/>
+  <text x="361" y="925" class="small muted">Consultas diretas HTTP/REST</text>
+  <text x="1140" y="925" text-anchor="end" class="small muted">Checkpoint 01 · Serviços ainda não implementados</text>
+</svg>

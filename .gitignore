@@ -1,0 +1,16 @@
+# Arquivos locais do sistema e do editor
+.DS_Store
+Thumbs.db
+Desktop.ini
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Temporários, logs e configurações pessoais
+*.tmp
+*.log
+.env
+.env.*
+!.env.example
+__pycache__/
