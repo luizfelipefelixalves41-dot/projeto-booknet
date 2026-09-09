@@ -7,10 +7,20 @@ Desktop.ini
 *.swp
 *.swo
 
+# Python: cache, arquivos compilados e ambientes virtuais
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# Bancos de dados locais das futuras implementações
+*.db
+*.sqlite
+*.sqlite3
+
 # Temporários, logs e configurações pessoais
 *.tmp
 *.log
 .env
 .env.*
-!.env.example
-__pycache__/
