@@ -326,13 +326,9 @@ Esse servidor é opcional e serve somente os arquivos estáticos; não inicia os
 
 ## Repositório
 
-Link do repositório:
+O código e a documentação estão no repositório [projeto-booknet no GitHub](https://github.com/luizfelipefelixalves41-dot/projeto-booknet).
 
-```text
-ADICIONAR_APOS_CRIACAO_DO_REPOSITORIO
-```
-
-O endereço será acrescentado após a criação do repositório no GitHub.
+Os diretórios `dashboard/`, `docs/`, `servico-catalogo/`, `servico-usuarios/`, `servico-emprestimos/` e `banco/` ficam diretamente na raiz do repositório. No workspace local, essa raiz corresponde à pasta `booknet/`.
 
 ## Estado atual
 
