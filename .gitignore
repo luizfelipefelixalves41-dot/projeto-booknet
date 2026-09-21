@@ -9,6 +9,7 @@ Desktop.ini
 
 # Python: cache, arquivos compilados e ambientes virtuais
 __pycache__/
+*.pyc
 *.py[cod]
 .venv/
 venv/

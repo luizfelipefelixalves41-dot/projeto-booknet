@@ -2,7 +2,9 @@
 
 **Sistema Distribuído de Gerenciamento de Biblioteca Universitária**  
 Disciplina: Sistemas Distribuídos  
-Entrega atual: **Checkpoint 01 / V0 — Ideia e arquitetura**
+Etapa atual: **V1.1 — Catálogo em preparação**, como parte da V1 — Cliente-servidor em desenvolvimento
+
+Entrega concluída: **Checkpoint 01 / V0 — Ideia e arquitetura**
 
 ## Integrantes
 
@@ -14,7 +16,7 @@ Entrega atual: **Checkpoint 01 / V0 — Ideia e arquitetura**
 
 O BookNet é um projeto acadêmico da disciplina de Sistemas Distribuídos voltado ao gerenciamento de uma biblioteca universitária. Seu desenvolvimento será incremental ao longo do semestre, relacionando cada versão aos conceitos estudados em aula.
 
-A V0 reúne a proposta, a estrutura inicial do projeto, a documentação da arquitetura e um dashboard estático de apresentação. As funcionalidades da biblioteca e as comunicações entre serviços descritas neste documento representam o planejamento das próximas versões.
+A V0 reúne a proposta, a estrutura inicial do projeto, a documentação da arquitetura e um dashboard estático de apresentação. A V1 iniciou o backend com FastAPI e uma verificação de conexão com PostgreSQL hospedado no Neon. A V1.1 prepara os modelos e endpoints de livros e exemplares, com testes isolados e uma migration ainda não aplicada ao Neon. O catálogo não deve ser considerado implantado. Usuários, empréstimos, devoluções, frontend funcional e comunicação entre serviços continuam planejados para etapas futuras.
 
 ## Problema
 
@@ -36,7 +38,7 @@ O objetivo acadêmico é estudar comunicação entre processos e distribuição 
 
 ## Usuários
 
-Os dois perfis abaixo compõem o escopo funcional planejado. Suas operações ainda não estão implementadas na V0.
+Os dois perfis abaixo compõem o escopo funcional planejado. Ainda não há autenticação, implementação desses perfis ou interface funcional para suas operações. A V1.1 prepara somente as operações de catálogo na API.
 
 ### Aluno
 
@@ -66,7 +68,7 @@ O escopo inicial do sistema a ser desenvolvido inclui:
 | Devoluções | Registrar a devolução e a mudança de estado do empréstimo e do exemplar. |
 | Comunicação entre componentes | Permitir solicitações e respostas pela rede entre cliente e serviços e nas consultas entre serviços. |
 
-Na V0, esse escopo está definido conceitualmente. A entrega implementada é o dashboard de apresentação; os serviços e as operações de gerenciamento serão construídos nas etapas seguintes.
+Na V0, esse escopo foi definido conceitualmente e foi implementado o dashboard de apresentação. A V1 contém uma única aplicação FastAPI com rotas de identificação e verificação de saúde. A V1.1 acrescenta o catálogo em preparação nessa mesma API; os serviços separados e as demais operações de gerenciamento serão construídos nas etapas seguintes.
 
 ## Fora do escopo inicial
 
@@ -93,7 +95,7 @@ O Cliente Web se comunicará com os serviços por HTTP/REST. Os serviços acessa
 
 O banco permanece como um único componente conceitual compartilhado neste desenho inicial. O cliente não acessará o banco diretamente. As setas do diagrama indicam o sentido das solicitações; as respostas retornarão ao solicitante.
 
-A [documentação da arquitetura](docs/arquitetura.md) detalha os componentes, modelos e interações planejadas.
+A [documentação da arquitetura](docs/arquitetura.md) detalha os componentes, modelos e interações planejadas. Ela, o diagrama e o dashboard preservam o registro da V0. A aplicação em `backend/` é a base inicial da V1 e ainda não implementa os três serviços separados do desenho.
 
 ## Componentes
 
@@ -158,7 +160,7 @@ Será responsável pelos empréstimos e devoluções. Antes de registrar um empr
 
 Persistirá futuramente os usuários, livros, exemplares e empréstimos, incluindo as informações de devolução registradas em `Emprestimo`.
 
-SQLite é a opção inicialmente planejada para a primeira implementação. A tecnologia de persistência poderá evoluir durante a disciplina. Na V0, não há banco funcional, tabelas ou migrações; os modelos apresentados são exclusivamente conceituais.
+SQLite foi a opção inicialmente considerada na V0. Para a base da V1, foi escolhido PostgreSQL hospedado no Neon, acessado por SQLAlchemy e pelo driver psycopg. A verificação de conexão continua executando apenas `SELECT 1`, sem criar tabelas. A V1.1 prepara os modelos SQLAlchemy `Livro` e `Exemplar` e uma migration inicial, ainda não aplicada ao Neon. Os modelos conceituais acima preservam a proposta da V0; a estrutura implementada do catálogo está detalhada na seção da V1.1. SQLite em memória é utilizado apenas nos testes isolados.
 
 ## Comunicação entre componentes
 
@@ -167,11 +169,11 @@ SQLite é a opção inicialmente planejada para a primeira implementação. A te
 | Cliente Web | Serviços de Usuários, Catálogo e Empréstimos | HTTP/REST para enviar solicitações relacionadas às responsabilidades de cada serviço e receber suas respostas. |
 | Serviço de Empréstimos | Serviço de Usuários | HTTP/REST para verificar se o usuário existe e está apto a solicitar um empréstimo, conforme critérios a definir. |
 | Serviço de Empréstimos | Serviço de Catálogo | HTTP/REST para verificar a disponibilidade do exemplar. |
-| Serviços | Banco de Dados | Consulta e persistência dos dados sob responsabilidade de cada serviço; o protocolo de acesso ao banco ainda não foi definido. |
+| Serviços | Banco de Dados | Consulta e persistência dos dados sob responsabilidade de cada serviço; a V1 utiliza PostgreSQL por SQLAlchemy e psycopg, com o catálogo da V1.1 em preparação. |
 
 A arquitetura atual já prevê a verificação de existência do usuário. Os critérios de aptidão para empréstimo ainda serão definidos nas próximas etapas, sem acrescentar campos ou regras de negócio ao modelo da V0.
 
-Todas essas interações representam a arquitetura planejada. **Nenhuma comunicação com backend ou entre serviços está implementada na V0.** O eventual servidor HTTP usado para abrir o dashboard apenas entrega arquivos estáticos.
+As interações entre serviços desse desenho representam a arquitetura planejada. Na V1, as requisições HTTP alcançam uma única API FastAPI, e a rota `/health/database` verifica a conexão com o PostgreSQL. O router de catálogo da V1.1 pertence a essa mesma aplicação; não é um serviço separado. O dashboard continua estático, sem integração com essa API, e não há comunicação entre serviços implementada.
 
 ## Exemplo de fluxo de empréstimo
 
@@ -236,42 +238,197 @@ Além disso, uma falha em determinado serviço não precisa necessariamente inte
 
 > Para uma biblioteca pequena, uma aplicação monolítica poderia ser suficiente. Neste projeto, a arquitetura distribuída foi escolhida principalmente para permitir a aplicação prática dos conceitos estudados na disciplina.
 
-## Tecnologias planejadas
+## Tecnologias atuais e planejadas
 
 | Tecnologia | Uso |
 | --- | --- |
-| Python | Backend planejado. |
-| FastAPI | APIs HTTP planejadas. |
+| Python | Base do backend da V1. |
+| FastAPI | API HTTP com identificação, verificações de saúde e endpoints de catálogo em preparação. |
+| Uvicorn | Servidor para executar a aplicação FastAPI. |
+| SQLAlchemy e psycopg | Verificação de conexão, modelos ORM e sessões por requisição para o catálogo. |
+| Alembic | Controle das alterações de estrutura do banco por migrations; migration inicial preparada, sem aplicação no Neon. |
+| python-dotenv | Carregamento da configuração local de conexão. |
 | HTML/CSS/JavaScript | Cliente Web planejado e dashboard estático já implementado na V0. |
-| SQLite | Banco inicial planejado. |
-| PostgreSQL | Possível evolução da persistência. |
+| PostgreSQL / Neon | Banco escolhido para a V1; a estrutura real permanece sem alterações nesta etapa. |
 | Git | Versionamento do código e da documentação. |
 | GitHub | Hospedagem do repositório e apresentação do projeto. |
 | Docker | Conteinerização em etapa futura. |
 
-As tecnologias futuras ainda podem mudar conforme os conteúdos e as necessidades da disciplina. A tabela não indica que ferramentas ou serviços já foram instalados ou configurados. O dashboard atual usa apenas HTML, CSS e JavaScript puro, sem bibliotecas ou dependências externas; o backend e o banco ainda não foram implementados.
+As dependências Python estão registradas em `requirements.txt`. O dashboard atual usa apenas HTML, CSS e JavaScript puro, sem bibliotecas ou dependências externas. Docker, frontend funcional e os recursos da biblioteca além do catálogo permanecem para etapas futuras.
 
-## Portas planejadas
+### Preparar o backend no PowerShell
 
-| Serviço | Porta |
+Execute os comandos **na raiz `booknet/`**. Verifique o Python com `python --version` ou `py --version`. Se nenhum comando funcionar, será necessário instalar Python antes de continuar.
+
+Crie o ambiente virtual, se ele ainda não existir:
+
+```powershell
+python -m venv .venv
+```
+
+Se apenas o comando `py` estiver disponível, use `py -m venv .venv`. Ative o ambiente e instale as dependências:
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+```
+
+Caso a ativação seja bloqueada pelo PowerShell, use diretamente o Python do ambiente, sem alterar políticas de segurança:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+```
+
+A variável `DATABASE_URL` deve ser preenchida manualmente no arquivo local `.env`, na raiz `booknet/`. Esse arquivo e o ambiente `.venv/` são ignorados pelo Git. O backend carrega a configuração a partir da raiz do projeto e informa um erro caso a variável esteja ausente; credenciais não devem ser incluídas no código ou no repositório.
+
+### Executar e verificar a API
+
+```powershell
+.\.venv\Scripts\python.exe -m uvicorn backend.main:app --reload --port 8000
+```
+
+Com o ambiente ativado, também é possível usar `python -m uvicorn backend.main:app --reload --port 8000`. Para encerrar, pressione `Ctrl+C`.
+
+| Endereço | Resultado esperado |
 | --- | --- |
-| Catálogo | 8001 |
-| Usuários | 8002 |
-| Empréstimos | 8003 |
+| [GET /](http://127.0.0.1:8000/) | HTTP 200 com `{"projeto":"BookNet","status":"online","versao":"V1"}`. |
+| [GET /health](http://127.0.0.1:8000/health) | HTTP 200 com `{"status":"ok"}`. |
+| [GET /health/database](http://127.0.0.1:8000/health/database) | HTTP 200 com `{"database":"online"}` quando `SELECT 1` funciona; HTTP 503 com `{"database":"offline"}` quando a conexão falha. |
+| [/docs](http://127.0.0.1:8000/docs) | Documentação interativa da BookNet API, versão `1.1.0`, com as tags `Sistema` e `Catálogo`. |
 
-Essas portas são convenções iniciais e podem ser alteradas durante a evolução do projeto. Elas não representam serviços em execução na V0.
+O resultado de `/health/database` depende da configuração local e da disponibilidade do banco no momento da requisição. A resposta não revela detalhes internos da conexão e o teste não cria tabelas.
+
+As respostas das três rotas de sistema foram preservadas, incluindo `"versao":"V1"` em `GET /`. O estado `online` da conexão não confirma a existência das tabelas do catálogo. Antes de autorizar e aplicar a migration em uma etapa posterior, não utilize os endpoints de catálogo para cadastrar ou alterar dados no Neon.
+
+O CORS permite as origens locais `http://localhost:8080`, `http://127.0.0.1:8080`, `http://localhost:5500` e `http://127.0.0.1:5500`, com os métodos `GET`, `POST`, `PUT`, `DELETE` e `OPTIONS` e todos os headers. Não há cookies ou autenticação; permitir um método no CORS não cria rotas para ele.
+
+## V1.1 — Catálogo em preparação
+
+**MIGRATION NÃO APLICADA AO NEON.** O código do catálogo e sua migration estão preparados para revisão e testes isolados. As tabelas não são criadas automaticamente ao iniciar a API, e o catálogo ainda não deve ser considerado implantado.
+
+### Modelos e integridade
+
+Um livro representa a obra ou edição; um exemplar identifica uma unidade física desse livro. O relacionamento `Livro` ↔ `Exemplar` permite vários exemplares por livro, sem exclusão em cascata. Os modelos usam SQLAlchemy 2.x.
+
+| Modelo / tabela | Campos | Regras principais |
+| --- | --- | --- |
+| `Livro` / `livros` | `id`, `titulo`, `autor`, `isbn`, `ativo`, `criado_em`, `atualizado_em` | Chave primária inteira; título e autor obrigatórios até 255 caracteres; ISBN obrigatório, único e mantido como string até 20 caracteres; `ativo` obrigatório, com padrão `true`. |
+| `Exemplar` / `exemplares` | `id`, `livro_id`, `codigo_tombo`, `status`, `criado_em` | Chave primária inteira; livro obrigatório e existente; código de tombo único até 50 caracteres; status restrito a `DISPONIVEL` ou `EMPRESTADO`, com padrão `DISPONIVEL`. |
+
+Os timestamps são preenchidos automaticamente, com suporte a fuso horário no PostgreSQL. `atualizado_em` é atualizado nas alterações de livro realizadas pelo ORM; isso não representa um trigger para escritas SQL externas. As constraints do banco protegem campos obrigatórios, valores válidos, unicidade e a referência ao livro. A chave estrangeira de `exemplares.livro_id` usa `RESTRICT` e possui índice, impedindo a exclusão de um livro que ainda tenha exemplares.
+
+Os schemas Pydantic de entrada e saída são separados dos modelos ORM. Na entrada, título, autor, ISBN e código de tombo devem ser strings, têm espaços externos removidos e não podem ficar vazios. São respeitados os limites de tamanho; campos extras são rejeitados. Não há validação complexa do formato de ISBN nesta etapa.
+
+### Endpoints preparados
+
+As seis operações abaixo estão reunidas na tag `Catálogo` do Swagger, na mesma API da porta 8000. Sua persistência no Neon depende da aplicação posterior e autorizada da migration.
+
+| Método | Rota | Comportamento |
+| --- | --- | --- |
+| `GET` | `/livros` | Lista somente livros ativos, com paginação e pesquisa opcionais. |
+| `GET` | `/livros/{livro_id}` | Consulta um livro por ID, inclusive se estiver inativo; retorna `404` quando não existe. |
+| `POST` | `/livros` | Cria um livro; retorna `201`, ou `409` para ISBN duplicado. |
+| `PUT` | `/livros/{livro_id}` | Substitui os dados de um livro existente; retorna `404` se não existe ou `409` para conflito de ISBN. |
+| `GET` | `/livros/{livro_id}/exemplares` | Lista os exemplares do livro; retorna `404` se o livro não existe. |
+| `POST` | `/livros/{livro_id}/exemplares` | Cria um exemplar; retorna `201`, `404` para livro inexistente ou `409` para código de tombo duplicado. |
+
+Em `GET /livros`, `skip` deve ser maior ou igual a zero e `limit` deve estar entre 1 e 100, com padrão 20. O parâmetro opcional `q` pesquisa título, autor e ISBN sem diferenciar maiúsculas de minúsculas. A consulta usa o ORM e parâmetros, tratando os caracteres de pesquisa como texto, sem concatenar entradas do usuário em SQL.
+
+Para criar ou atualizar um livro, informe `titulo`, `autor` e `isbn`; `ativo` tem padrão `true`. O `PUT` exige os três campos e usa esse padrão se `ativo` for omitido: não se trata de atualização parcial. Ao criar um exemplar, informe `codigo_tombo`; `status` é opcional e aceita somente os dois valores definidos. Informar `EMPRESTADO` não cria um empréstimo: o controle de empréstimos permanece futuro.
+
+Não há endpoint `DELETE`. Não foram acrescentados usuários, login, empréstimos, devoluções, frontend funcional ou serviços separados.
+
+### Sessões, erros e logs
+
+A dependency `get_db()` fornece uma sessão SQLAlchemy por requisição e a fecha ao final. As operações de escrita confirmam a transação somente quando bem-sucedidas e executam rollback em caso de falha. Não existe uma sessão global compartilhada entre requisições; a engine mantém `pool_pre_ping=True`.
+
+Erros de validação da entrada usam a resposta padrão `422` do FastAPI. Recursos inexistentes retornam `404`, conflitos de unicidade retornam `409`, outras violações de integridade retornam `400`, e falhas de disponibilidade retornam `503` quando identificadas. Erros inesperados de banco retornam `500` com mensagem genérica. As respostas e os logs de erro de banco não incluem SQL, traceback, connection string, host, usuário ou senha.
+
+### Alembic e migration inicial
+
+O Alembic mantém o histórico de alterações estruturais do banco. A revisão inicial `0001_catalogo`, no arquivo `migrations/versions/0001_catalogo_livros_exemplares.py`, prepara a criação de `livros` e `exemplares`, com chaves primárias, constraints, índices e chave estrangeira. O arquivo da migration contém `upgrade()` para criar essa estrutura e `downgrade()` para revertê-la. O downgrade remove as tabelas do catálogo e perderia seus dados; existe como definição de reversão, mas não foi executado nem deve ser usado sem autorização e análise prévia.
+
+O `alembic.ini` não contém URL de conexão. No modo online, `migrations/env.py` reutiliza a engine e a configuração segura existentes. O modo offline usa os metadados e o dialeto PostgreSQL, sem abrir o `.env` nem se conectar ao Neon. Além das duas tabelas do catálogo, o Alembic utiliza a tabela técnica `alembic_version` para registrar a revisão aplicada. Nenhuma migration é aplicada durante a inicialização do backend.
+
+Para inspecionar o histórico local, execute na raiz `booknet/`:
+
+```powershell
+.\.venv\Scripts\python.exe -m alembic heads
+.\.venv\Scripts\python.exe -m alembic history
+```
+
+Esses comandos mostram as revisões disponíveis sem aplicar alterações. A aplicação da migration no Neon fica pendente de autorização explícita; este README não apresenta sua execução como um passo a realizar agora.
+
+### Testes isolados
+
+A suíte em `tests/` usa `unittest`, um banco SQLite em memória com chaves estrangeiras habilitadas e configuração isolada, sem ler o `.env` nem acessar o Neon. Ela verifica as rotas de sistema, validação, cadastro e atualização de livros, conflitos de unicidade, exemplares, busca, paginação e tratamento seguro de erros.
+
+Execute na raiz `booknet/`:
+
+```powershell
+.\.venv\Scripts\python.exe -m unittest discover -s tests -v
+```
+
+Na validação desta entrega, os **40 testes passaram**. A revisão `0001_catalogo` foi reconhecida por `alembic heads` e `alembic history`; seu SQL PostgreSQL foi gerado e inspecionado somente em modo offline, sem execução no banco. Não foi consultado o estado remoto por `alembic current` nesta etapa.
+
+Os testes locais não substituem uma validação posterior no PostgreSQL e não indicam implantação do catálogo no Neon. Não é necessário instalar `pytest` ou `httpx` para executar essa suíte.
+
+## Portas atuais e planejadas
+
+| Serviço | Porta | Situação |
+| --- | --- | --- |
+| API FastAPI | 8000 | Base da V1. |
+| Dashboard estático | 8080 | Servidor local opcional. |
+| Catálogo | 8001 | Planejado. |
+| Usuários | 8002 | Planejado. |
+| Empréstimos | 8003 | Planejado. |
+
+As portas dos três serviços são convenções para etapas futuras. A API atual usa a porta 8000; o servidor estático pode usar 8080 para funcionar ao mesmo tempo, sem conflito.
 
 ## Estrutura do projeto
 
-A estrutura atual da pasta `booknet/` no workspace é:
+A estrutura dos arquivos destinados ao versionamento na pasta `booknet/` é:
 
 ```text
 booknet/
 ├── README.md
 ├── .gitignore
+├── requirements.txt
+├── alembic.ini
+├── backend/
+│   ├── __init__.py
+│   ├── main.py
+│   ├── config.py
+│   ├── database.py
+│   ├── errors.py
+│   ├── models/
+│   │   ├── __init__.py
+│   │   ├── base.py
+│   │   ├── livro.py
+│   │   └── exemplar.py
+│   ├── schemas/
+│   │   ├── __init__.py
+│   │   ├── livro.py
+│   │   └── exemplar.py
+│   ├── routers/
+│   │   ├── __init__.py
+│   │   └── catalogo.py
+│   └── dependencies/
+│       ├── __init__.py
+│       └── database.py
+├── migrations/
+│   ├── env.py
+│   ├── script.py.mako
+│   └── versions/
+│       └── 0001_catalogo_livros_exemplares.py
+├── tests/
+│   ├── __init__.py
+│   └── test_catalogo.py
 ├── docs/
 │   ├── arquitetura.md
-│   └── arquitetura.svg
+│   ├── arquitetura.svg
+│   ├── BookNet_Guia_de_Estudo_Checkpoint01_V1.docx
+│   └── BookNet_Guia_de_Estudo_Checkpoint01_V1.doc
 ├── dashboard/
 │   ├── index.html
 │   ├── style.css
@@ -286,21 +443,22 @@ booknet/
     └── .gitkeep
 ```
 
-As pastas dos serviços e do banco contêm apenas `.gitkeep`, utilizado para manter diretórios reservados no versionamento. Os arquivos de arquitetura estão em `docs/`, e a apresentação visual está em `dashboard/`.
+As pastas dos serviços e do banco contêm apenas `.gitkeep`, utilizado para manter diretórios reservados no versionamento. A API está em `backend/`, o histórico de migrations em `migrations/` e a suíte isolada em `tests/`. Os arquivos de arquitetura e guias estão em `docs/`, e a apresentação visual está em `dashboard/`. Os arquivos locais de configuração e o ambiente virtual não fazem parte dessa estrutura versionada. Os guias Word preservam o acompanhamento até o início da V1; a V1.1 é registrada neste README.
 
 ## Evolução
 
 | Versão | Etapa | Status |
 | --- | --- | --- |
 | **V0** | **Ideia e arquitetura** | **Concluída** |
-| V1 | Cliente-servidor | Próxima |
+| V1 | Cliente-servidor | Em desenvolvimento — base da API e verificação de conexão. |
+| V1.1 | Catálogo persistente, dentro da V1 | Em preparação — modelos, endpoints e migration; não aplicado ao Neon. |
 | V2 | Sockets / mensagens | Planejada |
 | V3 | Serviços separados | Planejada |
 | V4 | Docker | Planejada |
 | V5 | Falhas e recuperação | Planejada |
 | V6 | Orquestração | Planejada |
 
-Somente a V0 está concluída. Esta tabela deverá ser atualizada conforme as entregas forem realizadas ao longo do semestre.
+Somente a V0 está concluída. A V1 está em desenvolvimento, com uma única API; a V1.1 prepara o catálogo e ainda não está implantada no Neon. Não há frontend integrado. V2 a V6 continuam futuras. O dashboard e `docs/arquitetura.md` preservam o registro da entrega V0.
 
 ## Dashboard
 
@@ -315,12 +473,12 @@ Abra [dashboard/index.html](dashboard/index.html) no navegador. Os arquivos CSS 
 Se o Python já estiver instalado, abra um terminal **dentro da pasta `booknet/dashboard/`** e execute:
 
 ```sh
-python -m http.server 8000
+python -m http.server 8080 --bind 127.0.0.1
 ```
 
-Acesse [http://localhost:8000/](http://localhost:8000/). Para encerrar o servidor, pressione `Ctrl+C`.
+Acesse [http://127.0.0.1:8080/](http://127.0.0.1:8080/). Para encerrar o servidor, pressione `Ctrl+C`.
 
-Essa opção serve apenas os arquivos de `dashboard/`. Os links para `../docs/` ficam fora da pasta servida. Para acessar também a documentação pelo navegador, execute o mesmo comando **na pasta `booknet/`** e acesse [http://localhost:8000/dashboard/](http://localhost:8000/dashboard/). Encerre o servidor anterior antes de reutilizar a porta 8000.
+Essa opção serve apenas os arquivos de `dashboard/`. Os links para `../docs/` ficam fora da pasta servida; para visualizá-los, use a abertura direta de `dashboard/index.html` ou abra os arquivos de `docs/` localmente. Mantenha o servidor estático restrito a `dashboard/`, pois a raiz do projeto contém a configuração local de conexão.
 
 Esse servidor é opcional e serve somente os arquivos estáticos; não inicia os serviços planejados do BookNet.
 
@@ -328,22 +486,26 @@ Esse servidor é opcional e serve somente os arquivos estáticos; não inicia os
 
 O código e a documentação estão no repositório [projeto-booknet no GitHub](https://github.com/luizfelipefelixalves41-dot/projeto-booknet).
 
-Os diretórios `dashboard/`, `docs/`, `servico-catalogo/`, `servico-usuarios/`, `servico-emprestimos/` e `banco/` ficam diretamente na raiz do repositório. No workspace local, essa raiz corresponde à pasta `booknet/`.
+Os diretórios `backend/`, `migrations/`, `tests/`, `dashboard/`, `docs/`, `servico-catalogo/`, `servico-usuarios/`, `servico-emprestimos/` e `banco/` ficam diretamente na raiz do repositório. No workspace local, essa raiz corresponde à pasta `booknet/`. As alterações desta etapa da V1.1 devem ser revisadas antes de qualquer commit ou envio ao GitHub; não há publicação automática.
 
 ## Estado atual
 
-**Checkpoint 01 / V0 — Ideia e arquitetura concluída.**
+**Checkpoint 01 / V0 concluído. V1 em desenvolvimento. V1.1 — Catálogo em preparação.**
 
 | Entrega | Situação atual |
 | --- | --- |
 | Proposta e arquitetura conceitual | Concluídas, com cinco componentes definidos. |
-| Documentação | Concluída para o Checkpoint 01: README, descrição da arquitetura e diagrama SVG. |
+| Documentação | Checkpoint 01 e guias existentes preservados em `docs/`; README atualizado até a V1.1. |
 | Dashboard | Implementado como apresentação estática em HTML, CSS e JavaScript puro. |
 | Estrutura inicial | Criada, com diretórios reservados para os serviços e o banco. |
-| Backend e APIs | Ainda não implementados. |
-| Banco de dados funcional | Ainda não implementado. |
-| Autenticação e operações da biblioteca | Ainda não implementadas. |
+| Backend e APIs | Rotas de sistema preservadas e seis operações de catálogo preparadas na mesma API FastAPI. |
+| Conexão com o banco | Verificação de PostgreSQL/Neon com `SELECT 1`; o endpoint informa `online` ou `offline`. |
+| Modelos SQLAlchemy | `Livro` e `Exemplar` implementados para o catálogo. |
+| Migration e tabelas no Neon | Migration `0001_catalogo` preparada; **MIGRATION NÃO APLICADA AO NEON**. |
+| Testes do catálogo | Suíte automatizada isolada, com SQLite em memória e sem alterações no Neon. |
+| Catálogo em uso real | Ainda não implantado; depende de autorização para a migration e de validação posterior. |
+| Autenticação, usuários, empréstimos e devoluções | Ainda não implementados. |
 | Comunicação entre serviços e tratamento de falhas | Planejados para as próximas versões. |
 | Docker e orquestração | Etapas futuras. |
 
-A próxima entrega prevista é a **V1 — Cliente-servidor**.
+A próxima entrega a concluir é a **V1 — Cliente-servidor**. A V1.1 prepara o catálogo de forma incremental, preservando o dashboard, as rotas existentes e o banco real. Qualquer aplicação da migration ou alteração de estrutura no Neon aguarda autorização explícita.
