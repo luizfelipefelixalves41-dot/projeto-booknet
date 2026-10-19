@@ -1,4 +1,4 @@
-"""API BookNet V1: catálogo, usuários, empréstimos e devoluções."""
+"""API BookNet V2: catálogo, usuários, empréstimos, devoluções e eventos em tempo real."""
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -6,6 +6,8 @@ from fastapi.responses import JSONResponse
 
 from backend.database import testar_conexao_banco
 from backend.errors import configurar_tratamento_erros
+from backend.eventos import router as eventos_router
+from backend.origens import ORIGENS_LOCAIS, REGEX_REDE_LOCAL
 from backend.routers.catalogo import router as catalogo_router
 from backend.routers.catalogo import router_exemplares
 from backend.routers.emprestimos import router as emprestimos_router
@@ -14,7 +16,7 @@ from backend.routers.usuarios import router as usuarios_router
 
 app = FastAPI(
     title="BookNet API",
-    version="1.2.0",
+    version="2.0.0",
     openapi_tags=[
         {"name": "Sistema", "description": "Identificação e verificações de disponibilidade."},
         {"name": "Catálogo", "description": "Livros, exemplares e disponibilidade."},
@@ -27,18 +29,8 @@ configurar_tratamento_erros(app)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:8080",
-        "http://127.0.0.1:8080",
-        "http://localhost:5500",
-        "http://127.0.0.1:5500",
-    ],
-    # Demonstração em duas máquinas: cliente servido em outro PC da rede local
-    # (faixas privadas 10.x, 172.16-31.x e 192.168.x), nas mesmas portas.
-    allow_origin_regex=(
-        r"^http://(10(\.\d{1,3}){3}|192\.168(\.\d{1,3}){2}"
-        r"|172\.(1[6-9]|2\d|3[01])(\.\d{1,3}){2}):(8080|5500)$"
-    ),
+    allow_origins=ORIGENS_LOCAIS,
+    allow_origin_regex=REGEX_REDE_LOCAL,
     allow_credentials=False,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
@@ -47,7 +39,7 @@ app.add_middleware(
 
 @app.get("/", tags=["Sistema"])
 def identificar_projeto() -> dict[str, str]:
-    return {"projeto": "BookNet", "status": "online", "versao": "V1"}
+    return {"projeto": "BookNet", "status": "online", "versao": "V2"}
 
 
 @app.get("/health", tags=["Sistema"])
@@ -66,3 +58,4 @@ app.include_router(catalogo_router)
 app.include_router(router_exemplares)
 app.include_router(usuarios_router)
 app.include_router(emprestimos_router)
+app.include_router(eventos_router)

@@ -3,11 +3,12 @@
 import logging
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Path, Query, status
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from backend.dependencies.database import get_db
+from backend.eventos import central
 from backend.models.exemplar import Exemplar
 from backend.models.livro import Livro
 from backend.schemas.exemplar import ExemplarCreate, ExemplarResponse
@@ -56,23 +57,27 @@ def consultar_livro(livro_id: LivroId, db: Banco) -> Livro:
 @router.post(
     "", response_model=LivroResponse, status_code=status.HTTP_201_CREATED, summary="Cadastrar livro"
 )
-def criar_livro(dados: LivroCreate, db: Banco) -> Livro:
+def criar_livro(dados: LivroCreate, db: Banco, tarefas: BackgroundTasks) -> Livro:
     livro = Livro(**dados.model_dump())
     db.add(livro)
     db.commit()
     db.refresh(livro)
     logger.info("Livro cadastrado com sucesso. id=%s", livro.id)
+    tarefas.add_task(central.publicar, "livro.criado", LivroResponse.model_validate(livro))
     return livro
 
 
 @router.put("/{livro_id}", response_model=LivroResponse, summary="Atualizar livro")
-def atualizar_livro(livro_id: LivroId, dados: LivroUpdate, db: Banco) -> Livro:
+def atualizar_livro(
+    livro_id: LivroId, dados: LivroUpdate, db: Banco, tarefas: BackgroundTasks
+) -> Livro:
     livro = _buscar_livro(db, livro_id)
     for campo, valor in dados.model_dump().items():
         setattr(livro, campo, valor)
     db.commit()
     db.refresh(livro)
     logger.info("Livro atualizado com sucesso. id=%s", livro.id)
+    tarefas.add_task(central.publicar, "livro.atualizado", LivroResponse.model_validate(livro))
     return livro
 
 
@@ -91,13 +96,18 @@ def listar_exemplares(livro_id: LivroId, db: Banco) -> list[Exemplar]:
     status_code=status.HTTP_201_CREATED,
     summary="Cadastrar exemplar",
 )
-def criar_exemplar(livro_id: LivroId, dados: ExemplarCreate, db: Banco) -> Exemplar:
+def criar_exemplar(
+    livro_id: LivroId, dados: ExemplarCreate, db: Banco, tarefas: BackgroundTasks
+) -> Exemplar:
     _buscar_livro(db, livro_id)
     exemplar = Exemplar(livro_id=livro_id, **dados.model_dump())
     db.add(exemplar)
     db.commit()
     db.refresh(exemplar)
     logger.info("Exemplar cadastrado com sucesso. id=%s", exemplar.id)
+    tarefas.add_task(
+        central.publicar, "exemplar.criado", ExemplarResponse.model_validate(exemplar)
+    )
     return exemplar
 
 

@@ -22,8 +22,8 @@ function el(tag, atributos = {}, ...filhos) {
   return elemento;
 }
 
-function avisar(mensagem, erro = false) {
-  const toast = el("div", { class: erro ? "toast erro" : "toast" }, mensagem);
+function avisar(mensagem, erro = false, classe = "") {
+  const toast = el("div", { class: `toast ${erro ? "erro" : classe}` }, mensagem);
   $("#toasts").append(toast);
   setTimeout(() => toast.remove(), erro ? 6000 : 3500);
 }
@@ -76,6 +76,83 @@ async function verificarStatus() {
     caixa.className = "status erro";
     texto.textContent = "API offline";
   }
+}
+
+/* ---------- Tempo real (V2): WebSocket de eventos ---------- */
+
+const WS_URL = `${API.replace(/^http/, "ws")}/ws/eventos`;
+const acoesProprias = new Set(); // eventos causados por esta tela: atualiza, mas não repete o aviso
+
+function marcarPropria(tipo, id) {
+  acoesProprias.add(`${tipo}:${id}`);
+}
+
+const DESCRICOES = {
+  "emprestimo.criado": (d) => `${d.usuario_nome} pegou “${d.livro_titulo}” (exemplar ${d.codigo_tombo}).`,
+  "emprestimo.devolvido": (d) => `${d.usuario_nome} devolveu “${d.livro_titulo}” (exemplar ${d.codigo_tombo}).`,
+  "livro.criado": (d) => `Novo livro no acervo: “${d.titulo}”.`,
+  "livro.atualizado": (d) => `Livro atualizado: “${d.titulo}”.`,
+  "exemplar.criado": (d) => `Novo exemplar cadastrado: ${d.codigo_tombo}.`,
+  "usuario.criado": (d) => `Novo usuário: ${d.nome}.`,
+  "usuario.atualizado": (d) => `Usuário atualizado: ${d.nome}.`,
+};
+
+function atualizarIndicadorTempoReal(conectado, telas) {
+  const caixa = $("#status-ws");
+  caixa.className = `status ${conectado ? "ok" : "erro"}`;
+  $(".status-text", caixa).textContent = conectado
+    ? `Ao vivo · ${telas} ${telas === 1 ? "tela" : "telas"}`
+    : "Tempo real desconectado · tentando de novo…";
+}
+
+function registrarNoFeed(evento, texto) {
+  const feed = $("#feed-eventos");
+  if (feed.firstElementChild && !feed.firstElementChild.querySelector("time")) feed.replaceChildren();
+  const hora = new Date(evento.momento).toLocaleTimeString("pt-BR");
+  feed.prepend(
+    el("li", { class: evento.tipo === "emprestimo.devolvido" ? "devolucao" : "" }, el("time", {}, hora), texto)
+  );
+  while (feed.children.length > 15) feed.lastElementChild.remove();
+}
+
+function recarregarAbaAtual() {
+  const ativa = $(".tab.is-active").dataset.tab;
+  if (ativa === "acervo") carregarLivros();
+  if (ativa === "usuarios") carregarUsuarios();
+  if (ativa === "emprestimos") {
+    carregarOpcoesUsuarios();
+    carregarEmprestimos();
+  }
+}
+
+function tratarEvento(evento) {
+  if (evento.tipo === "conectado" || evento.tipo === "conexoes.alteradas") {
+    atualizarIndicadorTempoReal(true, evento.dados.conexoes);
+    return;
+  }
+  const descrever = DESCRICOES[evento.tipo];
+  if (!descrever) return;
+  const texto = descrever(evento.dados);
+  registrarNoFeed(evento, texto);
+  const chave = `${evento.tipo}:${evento.dados.id}`;
+  if (acoesProprias.has(chave)) acoesProprias.delete(chave);
+  else avisar(texto, false, "ao-vivo");
+  recarregarAbaAtual();
+}
+
+function conectarEventos(tentativa = 0) {
+  const ws = new WebSocket(WS_URL);
+  let aberto = false;
+  ws.addEventListener("open", () => {
+    aberto = true;
+  });
+  ws.addEventListener("message", (mensagem) => tratarEvento(JSON.parse(mensagem.data)));
+  ws.addEventListener("close", () => {
+    atualizarIndicadorTempoReal(false);
+    // Reconexão com espera crescente (1s, 2s, 4s… até 30s) para não sobrecarregar a API.
+    const proxima = aberto ? 0 : tentativa + 1;
+    setTimeout(() => conectarEventos(proxima), Math.min(30000, 1000 * 2 ** proxima));
+  });
 }
 
 /* ---------- Abas ---------- */
@@ -155,6 +232,7 @@ async function criarExemplar(evento, livroId) {
   const formulario = evento.target;
   try {
     const exemplar = await api("POST", `/livros/${livroId}/exemplares`, { codigo_tombo: formulario.codigo_tombo.value });
+    marcarPropria("exemplar.criado", exemplar.id);
     avisar(`Exemplar ${exemplar.codigo_tombo} cadastrado.`);
     carregarLivros();
   } catch (erro) {
@@ -188,6 +266,7 @@ async function salvarLivro(evento) {
   const dados = { titulo: f.titulo.value, autor: f.autor.value, isbn: f.isbn.value, ativo: f.ativo.checked };
   try {
     const livro = f.registro_id.value ? await api("PUT", `/livros/${f.registro_id.value}`, dados) : await api("POST", "/livros", dados);
+    marcarPropria(f.registro_id.value ? "livro.atualizado" : "livro.criado", livro.id);
     avisar(`Livro "${livro.titulo}" salvo.`);
     limparFormLivro();
     carregarLivros();
@@ -265,6 +344,7 @@ async function salvarUsuario(evento) {
   const dados = { nome: f.nome.value, email: f.email.value, matricula: f.matricula.value, tipo: f.tipo.value, ativo: f.ativo.checked };
   try {
     const usuario = f.registro_id.value ? await api("PUT", `/usuarios/${f.registro_id.value}`, dados) : await api("POST", "/usuarios", dados);
+    marcarPropria(f.registro_id.value ? "usuario.atualizado" : "usuario.criado", usuario.id);
     avisar(`Usuário "${usuario.nome}" salvo.`);
     limparFormUsuario();
     carregarUsuarios();
@@ -357,6 +437,7 @@ async function criarEmprestimo(evento) {
       exemplar_id: Number(f.exemplar_id.value),
       prazo_dias: Number(f.prazo_dias.value),
     });
+    marcarPropria("emprestimo.criado", emp.id);
     avisar(`Empréstimo #${emp.id} registrado: devolver até ${formatarData(emp.data_prevista_devolucao)}.`);
     f.exemplar_id.value = "";
     $("#info-exemplar").textContent = "Dica: use o botão “Emprestar” no Acervo.";
@@ -372,6 +453,7 @@ async function devolver(emp, botao) {
   botao.disabled = true;
   try {
     await api("POST", `/emprestimos/${emp.id}/devolucao`);
+    marcarPropria("emprestimo.devolvido", emp.id);
     avisar(`Devolução do exemplar ${emp.codigo_tombo} registrada.`);
     carregarEmprestimos();
   } catch (erro) {
@@ -401,6 +483,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   verificarStatus();
   setInterval(verificarStatus, 15000);
+  conectarEventos();
   const abaInicial = location.hash.slice(1);
   abrirAba(["acervo", "usuarios", "emprestimos"].includes(abaInicial) ? abaInicial : "acervo");
 });

@@ -26,7 +26,7 @@ class CatalogoTestes(BancoIsoladoTestCase):
         resposta = self.requisicao("GET", "/")
         self.assertEqual(resposta.status_code, 200)
         self.assertEqual(
-            resposta.json(), {"projeto": "BookNet", "status": "online", "versao": "V1"}
+            resposta.json(), {"projeto": "BookNet", "status": "online", "versao": "V2"}
         )
 
     def test_health_preservado(self):

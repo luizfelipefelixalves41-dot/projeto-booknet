@@ -14,15 +14,20 @@
   <header class="topbar">
     <div class="brand">
       <span class="brand-mark" aria-hidden="true">B</span>
-      <span>booknet<small>CLIENTE WEB · V1</small></span>
+      <span>booknet<small>CLIENTE WEB · V2</small></span>
     </div>
     <nav class="tabs" aria-label="Seções">
       <button class="tab is-active" data-tab="acervo" type="button">Acervo</button>
       <button class="tab" data-tab="usuarios" type="button">Usuários</button>
       <button class="tab" data-tab="emprestimos" type="button">Empréstimos</button>
     </nav>
-    <div class="status" id="status-api" role="status" title="Estado da API e do banco">
-      <span class="dot"></span><span class="status-text">Verificando…</span>
+    <div class="status-group">
+      <div class="status" id="status-ws" role="status" title="Canal WebSocket de eventos em tempo real">
+        <span class="dot"></span><span class="status-text">Conectando…</span>
+      </div>
+      <div class="status" id="status-api" role="status" title="Estado da API e do banco">
+        <span class="dot"></span><span class="status-text">Verificando…</span>
+      </div>
     </div>
   </header>
 
@@ -116,6 +121,7 @@
       </div>
       <div class="layout">
         <div id="lista-emprestimos" class="list" aria-live="polite"></div>
+        <div class="aside-stack">
         <aside class="card form-card">
           <h2>Novo empréstimo</h2>
           <form id="form-emprestimo">
@@ -126,6 +132,12 @@
             <div class="actions"><button type="submit" class="primary">Registrar empréstimo</button></div>
           </form>
         </aside>
+        <aside class="card">
+          <h2>Ao vivo</h2>
+          <p class="hint">Mensagens recebidas pelo WebSocket, vindas de qualquer computador.</p>
+          <ol id="feed-eventos" class="feed"><li class="item-meta">Nenhum evento ainda.</li></ol>
+        </aside>
+        </div>
       </div>
     </section>
   </main>

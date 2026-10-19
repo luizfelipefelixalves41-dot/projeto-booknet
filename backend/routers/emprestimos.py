@@ -11,11 +11,12 @@ import logging
 from datetime import date, datetime, timedelta, timezone
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Path, Query, status
 from sqlalchemy import Select, func, select, update
 from sqlalchemy.orm import Session
 
 from backend.dependencies.database import get_db
+from backend.eventos import central
 from backend.models.emprestimo import Emprestimo, StatusEmprestimo
 from backend.models.exemplar import Exemplar, StatusExemplar
 from backend.models.livro import Livro
@@ -101,7 +102,9 @@ def consultar_emprestimo(emprestimo_id: EmprestimoId, db: Banco) -> dict[str, An
     status_code=status.HTTP_201_CREATED,
     summary="Registrar empréstimo",
 )
-def criar_emprestimo(dados: EmprestimoCreate, db: Banco) -> dict[str, Any]:
+def criar_emprestimo(
+    dados: EmprestimoCreate, db: Banco, tarefas: BackgroundTasks
+) -> dict[str, Any]:
     # FOR UPDATE serializa pedidos simultâneos do mesmo usuário (limite de ativos).
     usuario = db.get(Usuario, dados.usuario_id, with_for_update=True)
     if usuario is None:
@@ -149,7 +152,9 @@ def criar_emprestimo(dados: EmprestimoCreate, db: Banco) -> dict[str, Any]:
     db.add(emprestimo)
     db.commit()
     logger.info("Empréstimo registrado com sucesso. id=%s", emprestimo.id)
-    return _detalhar(db, emprestimo.id)
+    resposta = _detalhar(db, emprestimo.id)
+    tarefas.add_task(central.publicar, "emprestimo.criado", resposta)
+    return resposta
 
 
 @router.post(
@@ -157,7 +162,9 @@ def criar_emprestimo(dados: EmprestimoCreate, db: Banco) -> dict[str, Any]:
     response_model=EmprestimoResponse,
     summary="Registrar devolução",
 )
-def devolver_emprestimo(emprestimo_id: EmprestimoId, db: Banco) -> dict[str, Any]:
+def devolver_emprestimo(
+    emprestimo_id: EmprestimoId, db: Banco, tarefas: BackgroundTasks
+) -> dict[str, Any]:
     emprestimo = db.get(Emprestimo, emprestimo_id)
     if emprestimo is None:
         raise HTTPException(status_code=404, detail="Empréstimo não encontrado.")
@@ -176,4 +183,6 @@ def devolver_emprestimo(emprestimo_id: EmprestimoId, db: Banco) -> dict[str, Any
     )
     db.commit()
     logger.info("Devolução registrada com sucesso. id=%s", emprestimo_id)
-    return _detalhar(db, emprestimo_id)
+    resposta = _detalhar(db, emprestimo_id)
+    tarefas.add_task(central.publicar, "emprestimo.devolvido", resposta)
+    return resposta

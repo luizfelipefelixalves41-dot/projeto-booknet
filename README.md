@@ -2,9 +2,9 @@
 
 **Sistema Distribuído de Gerenciamento de Biblioteca Universitária**  
 Disciplina: Sistemas Distribuídos  
-Etapa atual: **V1 — Cliente-servidor concluída**
+Etapa atual: **V2 — Sockets e mensagens concluída**
 
-Entregas concluídas: **Checkpoint 01 / V0 (Ideia e arquitetura)** e **V1 (Cliente-servidor)**
+Entregas concluídas: **V0 (Ideia e arquitetura)**, **V1 (Cliente-servidor)** e **V2 (Sockets / mensagens)**
 
 ## Integrantes
 
@@ -18,7 +18,9 @@ O BookNet é um projeto acadêmico da disciplina de Sistemas Distribuídos volta
 
 A V0 reuniu a proposta, a arquitetura conceitual e um dashboard estático de apresentação. A V1 entrega a primeira implementação cliente-servidor completa: uma API FastAPI com catálogo (livros e exemplares), usuários, empréstimos e devoluções, persistida em PostgreSQL no Neon. Ela também inclui um **Cliente Web funcional** que consome essa API pelo navegador. A V1 também resolve, no banco, a falha de concorrência documentada na V0: dois usuários disputando o mesmo exemplar.
 
-Serviços separados, mensagens/sockets, Docker, recuperação de falhas e orquestração continuam planejados para as próximas versões (V2 a V6).
+A V2 acrescenta **mensagens em tempo real por WebSocket**: quando alguém empresta ou devolve um livro, todas as telas abertas, em qualquer computador, são avisadas na hora, sem recarregar a página.
+
+Serviços separados, Docker, recuperação de falhas e orquestração continuam planejados para as próximas versões (V3 a V6).
 
 ## Problema
 
@@ -175,6 +177,71 @@ O cabeçalho mostra em tempo real se a API e o banco estão online, a partir de 
 
 O `dashboard/` continua sendo a apresentação acadêmica estática da V0.
 
+## V2: Sockets e mensagens em tempo real
+
+Na V1, toda comunicação segue o modelo **requisição → resposta**: o cliente pergunta e o servidor responde. Se o André empresta um livro no computador dele, a tela do João só fica sabendo quando o João recarrega a página.
+
+A V2 acrescenta um **canal de mensagens por WebSocket**: uma conexão de socket que fica aberta entre cada cliente e a API. Quando algo muda, **o servidor toma a iniciativa** e envia uma mensagem a todos os clientes conectados (*broadcast*).
+
+```text
+ Computador do André                 API (Computador A)                 Computador do João
+ ───────────────────                 ──────────────────                 ──────────────────
+ POST /emprestimos ───── HTTP ─────▶ grava no banco (commit)
+        ◀────────────── 201 ──────── responde
+                                     publica "emprestimo.criado" ──WS──▶ aviso "AO VIVO" +
+                                     (para todas as conexões)            lista atualizada
+```
+
+### Formato das mensagens
+
+Cada mensagem é um JSON com três campos:
+
+```json
+{
+  "tipo": "emprestimo.criado",
+  "dados": {"id": 8, "usuario_nome": "Bibliotecária BookNet", "livro_titulo": "Projeto de Banco de Dados", "codigo_tombo": "3828-01", "status": "ATIVO"},
+  "momento": "2026-10-19T18:23:12.524Z"
+}
+```
+
+| Tipo | Quando é enviada |
+| --- | --- |
+| `conectado` | Só para quem acabou de conectar, com o número de conexões abertas. |
+| `conexoes.alteradas` | Para todos, quando alguém conecta ou desconecta. |
+| `emprestimo.criado` / `emprestimo.devolvido` | Depois de um empréstimo ou de uma devolução confirmados no banco. |
+| `livro.criado` / `livro.atualizado` | Cadastro ou alteração de livro. |
+| `exemplar.criado` | Cadastro de exemplar. |
+| `usuario.criado` / `usuario.atualizado` | Cadastro ou alteração de usuário. |
+| `pong` | Resposta a uma mensagem `ping` enviada pelo cliente, para verificar se o canal está vivo. |
+
+### Decisões de projeto
+
+- **O aviso só sai depois do commit.** A publicação roda como tarefa em segundo plano, depois que a transação foi confirmada e a resposta HTTP enviada. Uma operação recusada (`404`, `409`) ou desfeita não gera mensagem, então nenhum cliente recebe aviso de algo que não aconteceu.
+- **Conexões quebradas não travam as outras.** Se o envio para um cliente falhar (por exemplo, o Wi-Fi dele caiu), a conexão é removida e as demais continuam recebendo.
+- **Reconexão automática.** Se a API cair, o cliente tenta de novo após 1s, 2s, 4s… (até 30s) e volta sozinho quando ela retorna. O indicador do cabeçalho mostra "Ao vivo · N telas" ou "Tempo real desconectado".
+- **Segurança.** O CORS não protege WebSockets, então a API confere a origem de cada conexão com as mesmas regras do HTTP. Uma página de outro site recebe código `1008` e é recusada.
+- **Mensagens não substituem o banco.** Elas só avisam: quem perder uma mensagem (por exemplo, com a página fechada) continua vendo os dados corretos ao consultar a API. Garantia de entrega fica para a V5.
+
+### Como demonstrar
+
+1. Inicie a API e o Cliente Web (veja "Como executar") e abra o cliente em **dois computadores** ou em duas janelas.
+2. Em uma delas, empreste ou devolva um exemplar.
+3. A outra mostra o aviso **AO VIVO**, registra o evento no painel "Ao vivo" da aba Empréstimos e atualiza a lista sozinha.
+
+Também há um cliente de terminal, que mostra que o canal não depende do navegador:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\monitor_eventos.py                 # mesma máquina
+.\.venv\Scripts\python.exe scripts\monitor_eventos.py 192.168.0.101   # API em outro computador
+```
+
+```text
+Conectado a ws://192.168.0.101:8000/ws/eventos. Aguardando eventos...
+[15:22:15] conectado              1 conexão(ões) abertas
+[15:22:25] emprestimo.criado      #6 João Henrique · Redes de Computadores e a Internet · 4432-02
+[15:22:25] emprestimo.devolvido   #6 João Henrique · Redes de Computadores e a Internet · 4432-02
+```
+
 ## Como executar
 
 Execute os comandos **na raiz `booknet/`**, no PowerShell.
@@ -257,6 +324,7 @@ Com a API rodando:
 ```powershell
 .\.venv\Scripts\python.exe scripts\popular_dados.py       # 5 livros, 9 exemplares, 4 usuários
 .\.venv\Scripts\python.exe scripts\teste_concorrencia.py  # pedidos simultâneos pelo mesmo exemplar
+.\.venv\Scripts\python.exe scripts\monitor_eventos.py     # painel de eventos em tempo real (V2)
 ```
 
 `popular_dados.py` pode ser executado várias vezes, porque ignora registros que já existem. Cada execução de `teste_concorrencia.py` cria um exemplar novo (tombo `CONC-...`) no primeiro livro e, ao final, devolve o empréstimo.
@@ -267,19 +335,21 @@ Com a API rodando:
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
 
-**61 testes passando.** Eles usam SQLite em memória e não acessam o `.env` nem o Neon, porque qualquer tentativa de conexão PostgreSQL é bloqueada. Estão organizados assim:
+**68 testes passando.** Eles usam SQLite em memória e não acessam o `.env` nem o Neon, porque qualquer tentativa de conexão PostgreSQL é bloqueada. Estão organizados assim:
 
 | Arquivo | Cobertura |
 | --- | --- |
 | `tests/apoio.py` | Infraestrutura compartilhada: banco isolado por teste e cliente HTTP ASGI sem sockets. |
 | `tests/test_catalogo.py` | Rotas de sistema, CORS, livros, exemplares, busca, paginação, erros seguros e constraints. |
 | `tests/test_circulacao.py` | Usuários, fluxo completo de empréstimo e devolução, indisponibilidade, limite de 3, atraso, usuário e livro inativos, índice único parcial com rollback, filtros e constraints. |
+| `tests/test_eventos.py` | WebSocket (V2): boas-vindas e ping/pong, origem recusada (`1008`) e rede local aceita, broadcast de empréstimo e devolução para várias telas, ausência de evento em operação recusada, eventos de cadastro e remoção de conexão quebrada. |
 
 Validações adicionais feitas na entrega:
 
 - `alembic upgrade head` foi aplicado no Neon e `alembic check` não detectou diferenças entre os modelos e o banco.
 - `teste_concorrencia.py` foi executado 4 vezes contra o Neon, sempre com exatamente 1 empréstimo aprovado.
 - O Cliente Web foi testado no navegador com dados reais da API.
+- V2: o navegador e o `monitor_eventos.py`, conectados pelo IP da rede local (`192.168.0.101`), receberam os eventos de empréstimos feitos por outro cliente, e a lista foi atualizada sem recarregar a página.
 
 ## Estrutura do projeto
 
@@ -293,6 +363,8 @@ booknet/
 │   ├── config.py               # leitura do .env
 │   ├── database.py             # engine PostgreSQL e sessões
 │   ├── errors.py               # respostas de erro seguras
+│   ├── eventos.py              # V2: canal WebSocket e broadcast de mensagens
+│   ├── origens.py              # origens permitidas (CORS e WebSocket)
 │   ├── dependencies/database.py
 │   ├── models/                 # Livro, Exemplar, Usuario, Emprestimo
 │   ├── schemas/                # validação Pydantic de entrada e saída
@@ -300,9 +372,9 @@ booknet/
 ├── migrations/versions/
 │   ├── 0001_catalogo_livros_exemplares.py
 │   └── 0002_usuarios_emprestimos.py
-├── tests/                      # apoio.py, test_catalogo.py, test_circulacao.py
-├── scripts/                    # popular_dados.py, teste_concorrencia.py
-├── cliente/                    # Cliente Web funcional (V1)
+├── tests/                      # apoio.py, test_catalogo.py, test_circulacao.py, test_eventos.py
+├── scripts/                    # popular_dados.py, teste_concorrencia.py, monitor_eventos.py
+├── cliente/                    # Cliente Web funcional (V1) com tempo real (V2)
 ├── dashboard/                  # apresentação estática (V0)
 ├── docs/                       # arquitetura e guias de estudo
 ├── servico-catalogo/           # reservado para a V3
@@ -315,7 +387,7 @@ booknet/
 
 | Componente | Porta | Situação |
 | --- | --- | --- |
-| API FastAPI | 8000 | Implementada (V1). |
+| API FastAPI (HTTP e WebSocket `/ws/eventos`) | 8000 | Implementada (V1 e V2). |
 | Cliente Web / dashboard | 8080 | Implementado (servidor estático). |
 | Serviço de Catálogo | 8001 | Planejado (V3). |
 | Serviço de Usuários | 8002 | Planejado (V3). |
@@ -323,7 +395,7 @@ booknet/
 
 ## Situações de falha
 
-| Falha documentada na V0 | Situação na V1 |
+| Falha documentada na V0 | Situação na V2 |
 | --- | --- |
 | 1. Serviço de Empréstimos indisponível | Ainda não se aplica: os módulos rodam no mesmo processo. A indisponibilidade do **banco** já é detectada e informada com `503`. Será estudada com serviços separados (V3/V5). |
 | 2. Dois usuários pedem o mesmo exemplar | **Resolvida**: UPDATE condicional atômico e índice único parcial, demonstrados contra o Neon. |
@@ -335,7 +407,7 @@ booknet/
 | --- | --- | --- |
 | **V0** | **Ideia e arquitetura** | **Concluída** |
 | **V1** | **Cliente-servidor** | **Concluída**: API completa, banco no Neon, Cliente Web funcional, concorrência tratada. |
-| V2 | Sockets / mensagens | Planejada |
+| **V2** | **Sockets / mensagens** | **Concluída**: WebSocket com broadcast de eventos, cliente em tempo real com reconexão, monitor de terminal. |
 | V3 | Serviços separados | Planejada |
 | V4 | Docker | Planejada |
 | V5 | Falhas e recuperação | Planejada |
@@ -346,7 +418,8 @@ booknet/
 | Tecnologia | Uso |
 | --- | --- |
 | Python 3.13 | Linguagem do backend. |
-| FastAPI + Uvicorn | API HTTP/REST e servidor ASGI. |
+| FastAPI + Uvicorn | API HTTP/REST, WebSocket e servidor ASGI. |
+| websockets | Suporte a WebSocket no Uvicorn e cliente do `monitor_eventos.py`. |
 | SQLAlchemy 2 + psycopg 3 | ORM, transações e driver PostgreSQL. |
 | Alembic | Migrations versionadas do banco. |
 | Pydantic | Validação de entrada e saída. |
