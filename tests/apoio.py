@@ -1,8 +1,13 @@
-"""Estrutura compartilhada dos testes: API ASGI e SQLite exclusivamente em memória.
+"""Estrutura compartilhada dos testes: três serviços ASGI e SQLite exclusivamente em memória.
 
 O carregamento do .env é substituído antes de importar o backend, e qualquer
 tentativa de conexão psycopg é bloqueada. Nenhuma migration é aplicada; cada
 teste recebe um banco novo e descartável.
+
+V3: os serviços de Catálogo, Usuários e Empréstimos rodam no mesmo processo de
+teste. As chamadas HTTP do Serviço de Empréstimos usam o cliente httpx real, com
+um transporte simulado que entrega cada pedido ao serviço de destino. A lista
+``self.falhas`` permite simular serviço fora do ar ou lento.
 """
 
 from __future__ import annotations
@@ -15,6 +20,8 @@ import unittest
 from unittest.mock import patch
 from urllib.parse import urlsplit
 
+import anyio.from_thread
+import httpx
 from sqlalchemy import create_engine, event
 from sqlalchemy.engine import URL
 from sqlalchemy.orm import sessionmaker
@@ -34,10 +41,26 @@ with (
         side_effect=AssertionError("Os testes não podem conectar ao PostgreSQL."),
     ),
 ):
-    from backend import database
+    from backend import config, database
     from backend.dependencies.database import get_db
-    from backend.main import app
+    from backend.eventos import CentralDeEventos
     from backend.models.base import Base
+    from backend.servicos.catalogo import app as app_catalogo
+    from backend.servicos.emprestimos import app as app_emprestimos
+    from backend.servicos.usuarios import app as app_usuarios
+    from backend.servicos_remotos import ServicosRemotos, obter_servicos_remotos
+
+APPS = {"catalogo": app_catalogo, "usuarios": app_usuarios, "emprestimos": app_emprestimos}
+PORTAS = {8001: app_catalogo, 8002: app_usuarios, 8003: app_emprestimos}
+
+
+def app_da_rota(caminho: str):
+    """Escolhe o serviço dono da rota, como o Cliente Web faz pelo prefixo."""
+    if caminho.startswith("/usuarios"):
+        return app_usuarios
+    if caminho.startswith(("/emprestimos", "/ws/")):
+        return app_emprestimos
+    return app_catalogo
 
 
 @dataclass(frozen=True)
@@ -54,10 +77,12 @@ class Resposta:
         return json.loads(self.body)
 
 
-async def _requisicao_asgi(method, target, payload=None, headers=None):
+async def _requisicao_asgi(method, target, payload=None, headers=None, app=None, corpo=None):
     """Executa uma requisição HTTP no próprio processo, sem sockets."""
     endereco = urlsplit(target)
-    corpo = json.dumps(payload).encode("utf-8") if payload is not None else b""
+    app = app or app_da_rota(endereco.path)
+    if corpo is None:
+        corpo = json.dumps(payload).encode("utf-8") if payload is not None else b""
     cabecalhos = {"host": "testserver"}
     if payload is not None:
         cabecalhos["content-type"] = "application/json"
@@ -73,7 +98,7 @@ async def _requisicao_asgi(method, target, payload=None, headers=None):
         "query_string": endereco.query.encode("ascii"),
         "root_path": "",
         "headers": [
-            (nome.lower().encode("ascii"), valor.encode("ascii"))
+            (nome.lower().encode("ascii"), valor.encode("latin-1"))
             for nome, valor in cabecalhos.items()
         ],
         "client": ("127.0.0.1", 12345),
@@ -139,12 +164,51 @@ class BancoIsoladoTestCase(unittest.TestCase):
         self.patch_sessoes.start()
         self.addCleanup(self.patch_engine.stop)
         self.addCleanup(self.patch_sessoes.stop)
+
+        # Cada teste começa com centrais de eventos vazias, uma por serviço.
+        for app in APPS.values():
+            app.state.central = CentralDeEventos()
+
+        # Comunicação entre serviços: httpx real com transporte simulado.
+        self.falhas: list[tuple[str, Exception]] = []
+        self.chamadas_remotas: list[str] = []
+        cliente = httpx.Client(
+            transport=httpx.MockTransport(self._entregar), timeout=config.TIMEOUT_SERVICOS
+        )
+        self.addCleanup(cliente.close)
+        self.servicos = ServicosRemotos(cliente)
+        app_emprestimos.dependency_overrides[obter_servicos_remotos] = lambda: self.servicos
+        self.addCleanup(app_emprestimos.dependency_overrides.clear)
+
         self._contador_livros = 0
         self._contador_exemplares = 0
         self._contador_usuarios = 0
 
-    def requisicao(self, method, target, payload=None, headers=None):
-        return asyncio.run(_requisicao_asgi(method, target, payload, headers))
+    def _entregar(self, pedido: httpx.Request) -> httpx.Response:
+        """Transporte simulado: roda dentro da thread da rota de Empréstimos."""
+        url = str(pedido.url)
+        self.chamadas_remotas.append(f"{pedido.method} {pedido.url.path}")
+        for trecho, erro in self.falhas:
+            if trecho in url:
+                raise erro
+        destino = PORTAS[pedido.url.port]
+        alvo = pedido.url.raw_path.decode("ascii")
+        cabecalhos = {
+            nome: valor for nome, valor in pedido.headers.items() if nome.lower() != "host"
+        }
+        resposta = anyio.from_thread.run(
+            lambda: _requisicao_asgi(
+                pedido.method, alvo, headers=cabecalhos, app=destino, corpo=pedido.content
+            )
+        )
+        return httpx.Response(resposta.status_code, headers=resposta.headers, content=resposta.body)
+
+    def simular_falha(self, trecho: str, erro: Exception) -> None:
+        self.falhas.append((trecho, erro))
+
+    def requisicao(self, method, target, payload=None, headers=None, servico=None):
+        app = APPS[servico] if servico else None
+        return asyncio.run(_requisicao_asgi(method, target, payload, headers, app=app))
 
     def criar_livro(self, **alteracoes):
         self._contador_livros += 1

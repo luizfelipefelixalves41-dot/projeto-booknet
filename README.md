@@ -2,9 +2,9 @@
 
 **Sistema Distribuído de Gerenciamento de Biblioteca Universitária**  
 Disciplina: Sistemas Distribuídos  
-Etapa atual: **V2 — Sockets e mensagens concluída**
+Etapa atual: **V3 — Serviços separados concluída**
 
-Entregas concluídas: **V0 (Ideia e arquitetura)**, **V1 (Cliente-servidor)** e **V2 (Sockets / mensagens)**
+Entregas concluídas: **V0 (Ideia e arquitetura)**, **V1 (Cliente-servidor)**, **V2 (Sockets / mensagens)** e **V3 (Serviços separados)**
 
 ## Integrantes
 
@@ -16,11 +16,12 @@ Entregas concluídas: **V0 (Ideia e arquitetura)**, **V1 (Cliente-servidor)** e 
 
 O BookNet é um projeto acadêmico da disciplina de Sistemas Distribuídos voltado ao gerenciamento de uma biblioteca universitária. O desenvolvimento é incremental ao longo do semestre, e cada versão se relaciona aos conceitos estudados em aula.
 
-A V0 reuniu a proposta, a arquitetura conceitual e um dashboard estático de apresentação. A V1 entrega a primeira implementação cliente-servidor completa: uma API FastAPI com catálogo (livros e exemplares), usuários, empréstimos e devoluções, persistida em PostgreSQL no Neon. Ela também inclui um **Cliente Web funcional** que consome essa API pelo navegador. A V1 também resolve, no banco, a falha de concorrência documentada na V0: dois usuários disputando o mesmo exemplar.
+- **V0** reuniu a proposta, a arquitetura conceitual e um dashboard estático de apresentação.
+- **V1** entregou a primeira implementação cliente-servidor: uma API FastAPI com catálogo, usuários, empréstimos e devoluções, persistida em PostgreSQL no Neon, e um **Cliente Web funcional**. A falha de concorrência da V0 (dois usuários disputando o mesmo exemplar) foi resolvida no banco.
+- **V2** acrescentou **mensagens em tempo real por WebSocket**: quando alguém empresta ou devolve um livro, todas as telas abertas são avisadas na hora.
+- **V3** transformou a aplicação única nos **três serviços independentes do desenho da V0**: Catálogo, Usuários e Empréstimos, cada um em seu processo e porta. O Serviço de Empréstimos consulta os outros dois **pela rede**, com tempo limite e compensação em caso de falha.
 
-A V2 acrescenta **mensagens em tempo real por WebSocket**: quando alguém empresta ou devolve um livro, todas as telas abertas, em qualquer computador, são avisadas na hora, sem recarregar a página.
-
-Serviços separados, Docker, recuperação de falhas e orquestração continuam planejados para as próximas versões (V3 a V6).
+Docker, recuperação de falhas e orquestração continuam planejados (V4 a V6).
 
 ## Problema
 
@@ -42,12 +43,12 @@ O objetivo acadêmico é estudar comunicação entre processos e distribuição 
 
 ## Usuários
 
-| Perfil | Funcionalidades | Situação na V1 |
+| Perfil | Funcionalidades | Situação |
 | --- | --- | --- |
-| **Aluno** | Pesquisar livros, verificar disponibilidade, solicitar empréstimos, realizar devoluções e consultar seus empréstimos. | Operações disponíveis na API e no Cliente Web. |
-| **Bibliotecário** | Cadastrar e alterar livros e exemplares, consultar usuários e acompanhar empréstimos. | Operações disponíveis na API e no Cliente Web. |
+| **Aluno** | Pesquisar livros, verificar disponibilidade, solicitar empréstimos, realizar devoluções e consultar seus empréstimos. | Operações disponíveis nos serviços e no Cliente Web. |
+| **Bibliotecário** | Cadastrar e alterar livros e exemplares, consultar usuários e acompanhar empréstimos. | Operações disponíveis nos serviços e no Cliente Web. |
 
-Ainda não há login nem controle de permissões por perfil: qualquer pessoa com acesso ao Cliente Web executa todas as operações. Autenticação está fora do escopo da V1.
+Ainda não há login nem controle de permissões por perfil: qualquer pessoa com acesso ao Cliente Web executa todas as operações. Autenticação está fora do escopo atual.
 
 ## Fora do escopo inicial
 
@@ -62,93 +63,87 @@ Ainda não há login nem controle de permissões por perfil: qualquer pessoa com
 
 ![Arquitetura conceitual do BookNet: Cliente Web envia solicitações aos serviços de Usuários, Catálogo e Empréstimos; os três acessam o Banco de Dados. Empréstimos consulta diretamente Usuários e Catálogo.](docs/arquitetura.svg)
 
-A arquitetura planejada possui cinco componentes: **Cliente Web**, **Serviço de Usuários**, **Serviço de Catálogo**, **Serviço de Empréstimos** e **Banco de Dados**. A [documentação da arquitetura](docs/arquitetura.md) preserva o registro da V0.
+A arquitetura possui cinco componentes: **Cliente Web**, **Serviço de Usuários**, **Serviço de Catálogo**, **Serviço de Empréstimos** e **Banco de Dados**. A [documentação da arquitetura](docs/arquitetura.md) preserva o registro da V0. Desde a V3, o código segue esse desenho.
 
-### Como a V1 implementa essa arquitetura
+### Arquitetura implementada (V3)
 
 ```text
- Navegador (Cliente Web, porta 8080)
-        │  HTTP/REST + JSON (fetch, CORS)
-        ▼
- API FastAPI + Uvicorn (porta 8000)
- ├── routers/catalogo.py     → /livros, /exemplares     (papel do Serviço de Catálogo)
- ├── routers/usuarios.py     → /usuarios                (papel do Serviço de Usuários)
- └── routers/emprestimos.py  → /emprestimos             (papel do Serviço de Empréstimos)
-        │  SQLAlchemy + psycopg (protocolo PostgreSQL, pela internet)
-        ▼
- PostgreSQL no Neon (tabelas livros, exemplares, usuarios, emprestimos)
+                       Navegador · Cliente Web (porta 8080)
+                 │ HTTP/REST + WebSocket          │                      │
+                 ▼                                ▼                      ▼
+   ┌──────────────────────────┐   ┌─────────────────────────┐   ┌──────────────────────┐
+   │ Serviço de Catálogo 8001 │   │ Serviço de Usuários 8002│   │ Serviço de           │
+   │ livros, exemplares       │   │ alunos, bibliotecários  │   │ Empréstimos 8003     │
+   └────────────▲─────────────┘   └───────────▲─────────────┘   │ empréstimos,         │
+                │ POST /interno/exemplares/…   │ GET /usuarios/{id}│ devoluções          │
+                │ (retirada / liberação)       │                   └──┬───────────────────┘
+                └──────────────────────────────┴───── HTTP, timeout 3s ┘
+                                    │ cada serviço acessa só as próprias tabelas
+                                    ▼
+             PostgreSQL no Neon: livros, exemplares │ usuarios │ emprestimos
 ```
 
-Na V1, os três "serviços" são **módulos (routers) dentro de uma única aplicação**. Cada um tem responsabilidade própria, mas todos rodam no mesmo processo. Por isso, a verificação "o usuário existe? o exemplar está disponível?" feita por Empréstimos ainda é uma consulta direta ao banco, não uma chamada HTTP. A separação em processos independentes nas portas 8001, 8002 e 8003, com comunicação HTTP entre eles, é o objetivo da **V3**.
+| Serviço | Porta | Dono de | Código | Detalhes |
+| --- | --- | --- | --- | --- |
+| Catálogo | 8001 | `livros`, `exemplares` | `backend/servicos/catalogo.py` | [servico-catalogo/](servico-catalogo/README.md) |
+| Usuários | 8002 | `usuarios` | `backend/servicos/usuarios.py` | [servico-usuarios/](servico-usuarios/README.md) |
+| Empréstimos | 8003 | `emprestimos` | `backend/servicos/emprestimos.py` | [servico-emprestimos/](servico-emprestimos/README.md) |
+
+Cada serviço é um **processo separado**, com sua própria documentação (`/docs`), verificações de saúde (`/health` e `/health/database`) e canal de eventos (`/ws/eventos`). Se um deles cair, os outros continuam no ar.
+
+O banco continua sendo um único PostgreSQL compartilhado, como no desenho da V0. A regra, porém, é que **cada serviço só lê e escreve as próprias tabelas**. O que pertence a outro serviço é pedido pela rede. As chaves estrangeiras entre as tabelas foram mantidas como proteção extra. Elas são um ponto de acoplamento conhecido: uma separação completa daria um banco a cada serviço.
 
 ## Modelos implementados
 
-| Modelo / tabela | Campos | Regras principais |
-| --- | --- | --- |
-| `Livro` / `livros` | `id`, `titulo`, `autor`, `isbn`, `ativo`, `criado_em`, `atualizado_em` | ISBN único (string até 20); título e autor obrigatórios até 255; `ativo` padrão `true`. |
-| `Exemplar` / `exemplares` | `id`, `livro_id`, `codigo_tombo`, `status`, `criado_em` | Livro obrigatório (FK `RESTRICT`); código de tombo único; status `DISPONIVEL` ou `EMPRESTADO`. Todo exemplar nasce `DISPONIVEL`. |
-| `Usuario` / `usuarios` | `id`, `nome`, `email`, `matricula`, `tipo`, `ativo`, `criado_em`, `atualizado_em` | E-mail e matrícula únicos; e-mail normalizado em minúsculas; tipo `ALUNO` ou `BIBLIOTECARIO`. |
-| `Emprestimo` / `emprestimos` | `id`, `usuario_id`, `exemplar_id`, `data_emprestimo`, `data_prevista_devolucao`, `data_devolucao`, `status` | Status `ATIVO` ou `DEVOLVIDO`; `data_devolucao` vazia se e somente se `ATIVO`; **no máximo um empréstimo ATIVO por exemplar** (índice único parcial). |
+| Modelo / tabela | Serviço | Campos | Regras principais |
+| --- | --- | --- | --- |
+| `Livro` / `livros` | Catálogo | `id`, `titulo`, `autor`, `isbn`, `ativo`, `criado_em`, `atualizado_em` | ISBN único (string até 20); título e autor obrigatórios até 255; `ativo` padrão `true`. |
+| `Exemplar` / `exemplares` | Catálogo | `id`, `livro_id`, `codigo_tombo`, `status`, `criado_em` | Livro obrigatório (FK `RESTRICT`); código de tombo único; status `DISPONIVEL` ou `EMPRESTADO`. Todo exemplar nasce `DISPONIVEL`. |
+| `Usuario` / `usuarios` | Usuários | `id`, `nome`, `email`, `matricula`, `tipo`, `ativo`, `criado_em`, `atualizado_em` | E-mail e matrícula únicos; e-mail normalizado em minúsculas; tipo `ALUNO` ou `BIBLIOTECARIO`. |
+| `Emprestimo` / `emprestimos` | Empréstimos | `id`, `usuario_id`, `exemplar_id`, `data_emprestimo`, `data_prevista_devolucao`, `data_devolucao`, `status`, `usuario_nome`, `codigo_tombo`, `livro_id`, `livro_titulo` | Status `ATIVO` ou `DEVOLVIDO`; `data_devolucao` vazia se e somente se `ATIVO`; **no máximo um empréstimo ATIVO por exemplar** (índice único parcial). |
 
-As regras são garantidas em duas camadas. Os schemas Pydantic validam a entrada da API (respondendo `422`), e as constraints do banco (`UNIQUE`, `CHECK`, `FOREIGN KEY`) protegem os dados mesmo contra escritas que não passem pela API. Nenhum registro é excluído: livros e usuários são desativados com `ativo = false`.
+As regras são garantidas em duas camadas. Os schemas Pydantic validam a entrada (respondendo `422`), e as constraints do banco (`UNIQUE`, `CHECK`, `FOREIGN KEY`) protegem os dados mesmo contra escritas que não passem pelos serviços. Nenhum registro é excluído: livros e usuários são desativados com `ativo = false`.
+
+**Por que o empréstimo guarda `usuario_nome`, `codigo_tombo` e `livro_titulo`?** Desde a V3, o Serviço de Empréstimos não consulta as tabelas dos outros serviços. Ele guarda uma **cópia** desses dados no momento do empréstimo (migration `0003`). Com isso, a lista de empréstimos funciona mesmo com Usuários e Catálogo fora do ar. A contrapartida é que, se o usuário mudar de nome depois, os empréstimos antigos continuam com o nome da época. É um registro histórico, como um recibo.
 
 ## Endpoints
 
-Documentação interativa: [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs) (Swagger, versão `1.2.0`, tags `Sistema`, `Catálogo`, `Usuários` e `Empréstimos`).
+| Serviço | Método | Rota | Comportamento |
+| --- | --- | --- | --- |
+| todos | `GET` | `/` | Identificação, ex.: `{"projeto":"BookNet","servico":"catalogo","status":"online","versao":"V3"}`. |
+| todos | `GET` | `/health` | Serviço respondendo: `{"status":"ok","servico":"…"}`. |
+| todos | `GET` | `/health/database` | `SELECT 1` no banco: `200 online` ou `503 offline`. |
+| todos | `WS` | `/ws/eventos` | Canal de eventos do serviço (V2). |
+| Catálogo | `GET` | `/livros` | Lista livros ativos; `q` pesquisa título, autor e ISBN; paginação `skip`/`limit`. |
+| Catálogo | `GET` | `/livros/{id}` | Consulta um livro (inclusive inativo). |
+| Catálogo | `POST` | `/livros` | Cadastra livro (`201`; `409` se o ISBN já existe). |
+| Catálogo | `PUT` | `/livros/{id}` | Substitui os dados do livro (também usado para desativar). |
+| Catálogo | `GET` | `/livros/{id}/exemplares` | Lista os exemplares do livro e seus status. |
+| Catálogo | `POST` | `/livros/{id}/exemplares` | Cadastra exemplar (`409` se o tombo já existe). |
+| Catálogo | `GET` | `/exemplares/{id}` | Consulta a disponibilidade de um exemplar. |
+| Catálogo (interno) | `POST` | `/interno/exemplares/{id}/retirada` | Reserva atômica do exemplar para um empréstimo. Exige `X-Servico-Token`. |
+| Catálogo (interno) | `POST` | `/interno/exemplares/{id}/liberacao` | Devolve o exemplar ao acervo; idempotente. Exige `X-Servico-Token`. |
+| Usuários | `GET` | `/usuarios` | Lista usuários ativos; `q` pesquisa nome, e-mail e matrícula; filtro `tipo`. |
+| Usuários | `GET` | `/usuarios/{id}` | Consulta um usuário. |
+| Usuários | `POST` | `/usuarios` | Cadastra usuário (`409` para e-mail ou matrícula repetidos). |
+| Usuários | `PUT` | `/usuarios/{id}` | Substitui os dados do usuário (também usado para desativar). |
+| Empréstimos | `GET` | `/emprestimos` | Lista empréstimos, mais recentes primeiro; filtros `usuario_id`, `status` e `atrasados=true`. |
+| Empréstimos | `GET` | `/emprestimos/{id}` | Consulta um empréstimo. |
+| Empréstimos | `POST` | `/emprestimos` | Registra empréstimo: `{"usuario_id":1,"exemplar_id":4,"prazo_dias":14}`. |
+| Empréstimos | `POST` | `/emprestimos/{id}/devolucao` | Registra a devolução e libera o exemplar no Catálogo. |
 
-| Método | Rota | Comportamento |
-| --- | --- | --- |
-| `GET` | `/` | Identificação: `{"projeto":"BookNet","status":"online","versao":"V1"}`. |
-| `GET` | `/health` | API respondendo: `{"status":"ok"}`. |
-| `GET` | `/health/database` | `SELECT 1` no banco: `200 online` ou `503 offline`. |
-| `GET` | `/livros` | Lista livros ativos; `q` pesquisa título, autor e ISBN; paginação `skip`/`limit`. |
-| `GET` | `/livros/{id}` | Consulta um livro (inclusive inativo). |
-| `POST` | `/livros` | Cadastra livro (`201`; `409` se o ISBN já existe). |
-| `PUT` | `/livros/{id}` | Substitui os dados do livro (também usado para desativar). |
-| `GET` | `/livros/{id}/exemplares` | Lista os exemplares do livro e seus status. |
-| `POST` | `/livros/{id}/exemplares` | Cadastra exemplar (`409` se o tombo já existe). |
-| `GET` | `/exemplares/{id}` | Consulta a disponibilidade de um exemplar. |
-| `GET` | `/usuarios` | Lista usuários ativos; `q` pesquisa nome, e-mail e matrícula; filtro `tipo`. |
-| `GET` | `/usuarios/{id}` | Consulta um usuário. |
-| `POST` | `/usuarios` | Cadastra usuário (`409` para e-mail ou matrícula repetidos). |
-| `PUT` | `/usuarios/{id}` | Substitui os dados do usuário (também usado para desativar). |
-| `GET` | `/emprestimos` | Lista empréstimos, mais recentes primeiro; filtros `usuario_id`, `status` e `atrasados=true`. |
-| `GET` | `/emprestimos/{id}` | Consulta um empréstimo. |
-| `POST` | `/emprestimos` | Registra empréstimo: `{"usuario_id":1,"exemplar_id":4,"prazo_dias":14}`. |
-| `POST` | `/emprestimos/{id}/devolucao` | Registra a devolução e libera o exemplar. |
-
-As respostas de empréstimo incluem o nome do usuário, o título do livro, o código de tombo e o campo calculado `atrasado`. Assim, o cliente exibe tudo com uma única requisição.
+Documentação interativa de cada serviço: [8001/docs](http://127.0.0.1:8001/docs), [8002/docs](http://127.0.0.1:8002/docs) e [8003/docs](http://127.0.0.1:8003/docs).
 
 ### Regras de empréstimo
 
 Um empréstimo é aprovado somente se:
 
-1. O usuário existe (`404`) e está ativo (`409`).
-2. O usuário tem menos de **3 empréstimos ativos** (`409`).
-3. O usuário **não tem empréstimo em atraso** (`409`).
-4. O exemplar existe (`404`), pertence a um livro ativo (`409`) e está **disponível** (`409`).
+1. O usuário existe (`404`) e está ativo (`409`). *Verificado pelo Serviço de Usuários.*
+2. O usuário tem menos de **3 empréstimos ativos** (`409`). *Verificado pelo Serviço de Empréstimos.*
+3. O usuário **não tem empréstimo em atraso** (`409`). *Verificado pelo Serviço de Empréstimos.*
+4. O exemplar existe (`404`), pertence a um livro ativo (`409`) e está **disponível** (`409`). *Verificado pelo Serviço de Catálogo.*
 
-O prazo padrão é de 14 dias, configurável de 1 a 60 em `prazo_dias`. A devolução muda o empréstimo para `DEVOLVIDO`, registra `data_devolucao` e devolve o exemplar a `DISPONIVEL`, tudo na mesma transação. Devolver duas vezes retorna `409`.
-
-### Concorrência: a falha 2 da V0 resolvida
-
-A V0 documentou o cenário em que *"dois usuários tentam pegar o mesmo exemplar ao mesmo tempo"*. A V1 trata esse cenário em três níveis:
-
-1. **UPDATE condicional atômico:** a retirada executa `UPDATE exemplares SET status='EMPRESTADO' WHERE id=:id AND status='DISPONIVEL'`. O PostgreSQL bloqueia a linha. A primeira transação altera o status, e a segunda reavalia a condição após o commit da primeira, encontra 0 linhas e recebe `409 Exemplar não está disponível`. Não existe intervalo entre "verificar" e "alterar".
-2. **Índice único parcial** `uq_emprestimos_exemplar_ativo` (`UNIQUE (exemplar_id) WHERE status = 'ATIVO'`): mesmo que algum código futuro esqueça o passo 1, o banco recusa um segundo empréstimo ativo. A transação é desfeita por completo.
-3. **`SELECT ... FOR UPDATE` no usuário:** serializa pedidos simultâneos do mesmo usuário, para que o limite de 3 empréstimos não seja ultrapassado.
-
-O script `scripts/teste_concorrencia.py` demonstra isso contra o banco real. Ele dispara pedidos **simultâneos** de todos os usuários para o mesmo exemplar e confere o resultado. Saída registrada no Neon:
-
-```text
-  Luiz Felipe               HTTP 201  empréstimo 1
-  João Henrique             HTTP 409  Exemplar não está disponível.
-  Bibliotecária BookNet     HTTP 409  Exemplar não está disponível.
-  André                     HTTP 409  Exemplar não está disponível.
-
-Pedidos simultâneos: 4 | aprovados: 1
-RESULTADO: OK - apenas um empréstimo registrado.
-```
+O prazo padrão é de 14 dias, configurável de 1 a 60 em `prazo_dias`. Devolver duas vezes retorna `409`.
 
 ### Erros e segurança
 
@@ -158,22 +153,24 @@ RESULTADO: OK - apenas um empréstimo registrado.
 | Recurso inexistente | `404`. |
 | Duplicidade ou regra de negócio violada | `409` com mensagem clara (ex.: `E-mail já cadastrado.`). |
 | Outras violações de integridade | `400`. |
-| Banco indisponível | `503`. |
+| Rota interna chamada sem o token | `403`. |
+| Banco ou outro serviço indisponível | `503`. |
+| Outro serviço não respondeu no prazo | `504`. |
 | Erro inesperado | `500` com mensagem genérica. |
 
-Respostas e logs nunca incluem SQL, traceback, connection string, host, usuário ou senha. A API usa uma sessão de banco por requisição (`get_db()`), com rollback automático em caso de falha.
+Respostas e logs nunca incluem SQL, traceback, connection string, host, usuário, senha ou token. Cada serviço usa uma sessão de banco por requisição (`get_db()`), com rollback automático em caso de falha.
 
 ## Cliente Web
 
-A pasta `cliente/` contém a interface funcional em HTML, CSS e JavaScript puro, sem dependências. Ela se comunica com a API por `fetch` (HTTP/REST e JSON).
+A pasta `cliente/` contém a interface funcional em HTML, CSS e JavaScript puro, sem dependências. Desde a V3, ela conversa com **três endereços** e escolhe o serviço pelo início da rota: `/usuarios` vai para a porta 8002, `/emprestimos` para a 8003 e o resto para a 8001.
 
 | Aba | O que faz |
 | --- | --- |
 | **Acervo** | Pesquisa livros, mostra quantos exemplares estão disponíveis, lista exemplares e seus status, cadastra e edita livros e exemplares, e tem o botão **Emprestar** em cada exemplar disponível. |
 | **Usuários** | Pesquisa e filtra por tipo, cadastra e edita alunos e bibliotecários, e dá acesso aos empréstimos de cada usuário. |
-| **Empréstimos** | Registra empréstimos, lista com filtros (todos, ativos, atrasados, devolvidos) e registra devoluções. |
+| **Empréstimos** | Registra empréstimos, lista com filtros (todos, ativos, atrasados, devolvidos), registra devoluções e mostra o painel **Ao vivo**. |
 
-O cabeçalho mostra em tempo real se a API e o banco estão online, a partir de `/health/database`. Erros da API, como `409 Exemplar não está disponível`, aparecem como notificações. Os textos vindos da API são inseridos com `textContent`, nunca como HTML.
+O cabeçalho mostra um indicador por serviço (**Catálogo**, **Usuários**, **Empréstimos**), verde ou vermelho, e o estado do tempo real (**Ao vivo 3/3 · N telas**). Se um serviço estiver fora do ar, a aba correspondente mostra *"Serviço de Empréstimos fora do ar (porta 8003)"*, e as demais continuam funcionando. Os textos vindos dos serviços são inseridos com `textContent`, nunca como HTML.
 
 O `dashboard/` continua sendo a apresentação acadêmica estática da V0.
 
@@ -181,16 +178,18 @@ O `dashboard/` continua sendo a apresentação acadêmica estática da V0.
 
 Na V1, toda comunicação segue o modelo **requisição → resposta**: o cliente pergunta e o servidor responde. Se o André empresta um livro no computador dele, a tela do João só fica sabendo quando o João recarrega a página.
 
-A V2 acrescenta um **canal de mensagens por WebSocket**: uma conexão de socket que fica aberta entre cada cliente e a API. Quando algo muda, **o servidor toma a iniciativa** e envia uma mensagem a todos os clientes conectados (*broadcast*).
+A V2 acrescenta um **canal de mensagens por WebSocket**: uma conexão de socket que fica aberta entre cada cliente e o servidor. Quando algo muda, **o servidor toma a iniciativa** e envia uma mensagem a todos os clientes conectados (*broadcast*).
 
 ```text
- Computador do André                 API (Computador A)                 Computador do João
- ───────────────────                 ──────────────────                 ──────────────────
+ Computador do André                 Serviço (Computador A)             Computador do João
+ ───────────────────                 ──────────────────────             ──────────────────
  POST /emprestimos ───── HTTP ─────▶ grava no banco (commit)
         ◀────────────── 201 ──────── responde
                                      publica "emprestimo.criado" ──WS──▶ aviso "AO VIVO" +
                                      (para todas as conexões)            lista atualizada
 ```
+
+Na V3, cada serviço tem o seu canal e avisa sobre o próprio domínio. O cliente se conecta aos três.
 
 ### Formato das mensagens
 
@@ -204,43 +203,95 @@ Cada mensagem é um JSON com três campos:
 }
 ```
 
-| Tipo | Quando é enviada |
-| --- | --- |
-| `conectado` | Só para quem acabou de conectar, com o número de conexões abertas. |
-| `conexoes.alteradas` | Para todos, quando alguém conecta ou desconecta. |
-| `emprestimo.criado` / `emprestimo.devolvido` | Depois de um empréstimo ou de uma devolução confirmados no banco. |
-| `livro.criado` / `livro.atualizado` | Cadastro ou alteração de livro. |
-| `exemplar.criado` | Cadastro de exemplar. |
-| `usuario.criado` / `usuario.atualizado` | Cadastro ou alteração de usuário. |
-| `pong` | Resposta a uma mensagem `ping` enviada pelo cliente, para verificar se o canal está vivo. |
+| Tipo | Canal (V3) | Quando é enviada |
+| --- | --- | --- |
+| `conectado` | todos | Só para quem acabou de conectar, com o número de conexões abertas. |
+| `conexoes.alteradas` | todos | Para todos, quando alguém conecta ou desconecta. |
+| `emprestimo.criado` / `emprestimo.devolvido` | Empréstimos | Depois de um empréstimo ou de uma devolução confirmados no banco. |
+| `livro.criado` / `livro.atualizado` | Catálogo | Cadastro ou alteração de livro. |
+| `exemplar.criado` | Catálogo | Cadastro de exemplar. |
+| `usuario.criado` / `usuario.atualizado` | Usuários | Cadastro ou alteração de usuário. |
+| `pong` | todos | Resposta a uma mensagem `ping` enviada pelo cliente, para verificar se o canal está vivo. |
 
 ### Decisões de projeto
 
 - **O aviso só sai depois do commit.** A publicação roda como tarefa em segundo plano, depois que a transação foi confirmada e a resposta HTTP enviada. Uma operação recusada (`404`, `409`) ou desfeita não gera mensagem, então nenhum cliente recebe aviso de algo que não aconteceu.
 - **Conexões quebradas não travam as outras.** Se o envio para um cliente falhar (por exemplo, o Wi-Fi dele caiu), a conexão é removida e as demais continuam recebendo.
-- **Reconexão automática.** Se a API cair, o cliente tenta de novo após 1s, 2s, 4s… (até 30s) e volta sozinho quando ela retorna. O indicador do cabeçalho mostra "Ao vivo · N telas" ou "Tempo real desconectado".
-- **Segurança.** O CORS não protege WebSockets, então a API confere a origem de cada conexão com as mesmas regras do HTTP. Uma página de outro site recebe código `1008` e é recusada.
-- **Mensagens não substituem o banco.** Elas só avisam: quem perder uma mensagem (por exemplo, com a página fechada) continua vendo os dados corretos ao consultar a API. Garantia de entrega fica para a V5.
+- **Reconexão automática.** Se um serviço cair, o cliente tenta de novo após 1s, 2s, 4s… (até 30s) e volta sozinho quando ele retorna.
+- **Segurança.** O CORS não protege WebSockets, então cada serviço confere a origem de cada conexão com as mesmas regras do HTTP. Uma página de outro site recebe código `1008` e é recusada.
+- **Mensagens não substituem o banco.** Elas só avisam: quem perder uma mensagem (por exemplo, com a página fechada) continua vendo os dados corretos ao consultar os serviços. Garantia de entrega fica para a V5.
 
 ### Como demonstrar
 
-1. Inicie a API e o Cliente Web (veja "Como executar") e abra o cliente em **dois computadores** ou em duas janelas.
+1. Inicie os serviços e o Cliente Web (veja "Como executar") e abra o cliente em **dois computadores** ou em duas janelas.
 2. Em uma delas, empreste ou devolva um exemplar.
 3. A outra mostra o aviso **AO VIVO**, registra o evento no painel "Ao vivo" da aba Empréstimos e atualiza a lista sozinha.
 
-Também há um cliente de terminal, que mostra que o canal não depende do navegador:
+Também há um cliente de terminal, que escuta os três canais e mostra que eles não dependem do navegador:
 
 ```powershell
 .\.venv\Scripts\python.exe scripts\monitor_eventos.py                 # mesma máquina
-.\.venv\Scripts\python.exe scripts\monitor_eventos.py 192.168.0.101   # API em outro computador
+.\.venv\Scripts\python.exe scripts\monitor_eventos.py 192.168.0.101   # serviços em outro computador
 ```
 
+## V3: Serviços separados
+
+Até a V2, Catálogo, Usuários e Empréstimos eram partes de **um único programa**. Se ele caísse, tudo caía junto. Para Empréstimos saber se um exemplar estava disponível, bastava olhar a tabela do lado.
+
+Na V3, cada um virou um **processo independente**, e a pergunta "o exemplar está disponível?" passou a ser uma **mensagem pela rede**. É exatamente o fluxo planejado no Checkpoint 01:
+
 ```text
-Conectado a ws://192.168.0.101:8000/ws/eventos. Aguardando eventos...
-[15:22:15] conectado              1 conexão(ões) abertas
-[15:22:25] emprestimo.criado      #6 João Henrique · Redes de Computadores e a Internet · 4432-02
-[15:22:25] emprestimo.devolvido   #6 João Henrique · Redes de Computadores e a Internet · 4432-02
+Cliente Web
+    │ POST /emprestimos {"usuario_id": 2, "exemplar_id": 5}
+    ▼
+Serviço de Empréstimos (8003)
+    ├─1─▶ Serviço de Usuários (8002):   GET /usuarios/2               "existe e está ativo?"
+    ├─2── regras locais: menos de 3 ativos? nenhum atrasado?
+    ├─3─▶ Serviço de Catálogo (8001):   POST /interno/exemplares/5/retirada   "reserve para mim"
+    └─4── grava o empréstimo na tabela emprestimos
+              │ falhou? ──▶ compensação: POST /interno/exemplares/5/liberacao
+              ▼
+         201 Created + evento "emprestimo.criado"
 ```
+
+### Decisões de projeto
+
+- **Quem é dono do dado decide sobre ele.** A retirada atômica do exemplar (`UPDATE … WHERE status='DISPONIVEL'`) mudou do Empréstimos para o **Catálogo**, que é o dono dos exemplares. Com pedidos simultâneos, só um recebe `200`; os outros recebem `409`. A falha 2 continua resolvida, agora entre serviços (veja o teste abaixo).
+- **Saga com compensação.** Não existe uma transação única que abranja dois serviços. Se o passo 4 falhar depois de o Catálogo já ter reservado o exemplar (passo 3), o Empréstimos **desfaz** o passo 3 pedindo a liberação. Se até a compensação falhar, o problema fica registrado no log; a V5 vai tratar isso com novas tentativas.
+- **Tempo limite em toda chamada.** Cada chamada a outro serviço espera no máximo 3 segundos (`BOOKNET_TIMEOUT_SERVICOS`). O usuário recebe uma resposta clara em vez de uma tela travada: **503** quando o serviço está desligado e **504** quando não respondeu a tempo (falha 3).
+- **Devolução segura.** A devolução só é gravada se o Catálogo confirmar a liberação do exemplar. Se ele estiver fora do ar, nada muda e a devolução pode ser repetida depois. A liberação é **idempotente** (repetir não causa efeito extra), o que permite tentar de novo com segurança.
+- **Rotas internas protegidas.** Retirada e liberação ficam em `/interno/…` e exigem o cabeçalho `X-Servico-Token`, um segredo compartilhado entre os serviços (`BOOKNET_TOKEN_INTERNO` no `.env`). Sem ele, a resposta é `403`. O navegador nunca chama essas rotas.
+- **Cópia dos dados no empréstimo.** O Empréstimos guarda nome do usuário, título e tombo no próprio registro (veja "Modelos implementados"), então a lista de empréstimos funciona sem os outros serviços.
+- **Limite de 3 por usuário.** Na V1 era garantido com `SELECT … FOR UPDATE` na tabela de usuários. Essa tabela agora pertence a outro serviço, então o Empréstimos usa uma *trava consultiva* do PostgreSQL (`pg_advisory_xact_lock`) identificada pelo número do usuário.
+
+### Concorrência entre serviços (falha 2)
+
+`scripts/teste_concorrencia.py` dispara pedidos **simultâneos** de todos os usuários para o mesmo exemplar. Cada pedido atravessa Empréstimos → Usuários → Catálogo. Saída registrada no Neon com os três serviços rodando (3 execuções, sempre 1 aprovado):
+
+```text
+Exemplar disputado: id=15 tombo=CONC-1792440399
+  Bibliotecária BookNet     HTTP 201  empréstimo 12
+  André                     HTTP 409  Exemplar não está disponível.
+  Luiz Felipe               HTTP 409  Exemplar não está disponível.
+  João Henrique             HTTP 409  Exemplar não está disponível.
+Pedidos simultâneos: 4 | aprovados: 1
+RESULTADO: OK - apenas um empréstimo registrado.
+```
+
+### Demonstrando as falhas 1 e 3
+
+O iniciador permite subir o sistema sem algum serviço (`--sem`):
+
+```powershell
+.\.venv\Scripts\python.exe scripts\iniciar_servicos.py --sem emprestimos   # falha 1
+.\.venv\Scripts\python.exe scripts\iniciar_servicos.py --sem catalogo      # falha 3
+```
+
+| Cenário | O que acontece (verificado contra o Neon) |
+| --- | --- |
+| **Empréstimos fora do ar** (falha 1) | O indicador **Empréstimos** fica vermelho e o tempo real cai para 2/3. **O Acervo e os Usuários continuam funcionando normalmente.** A aba Empréstimos mostra "Serviço de Empréstimos fora do ar (porta 8003)". |
+| **Catálogo fora do ar** (falha 3) | Um pedido de empréstimo recebe na hora `503 Serviço de Catálogo indisponível no momento.`, sem travar. A lista de empréstimos e o Serviço de Usuários continuam respondendo. |
+| **Catálogo lento** (falha 3) | Depois de 3 segundos, `504 O Serviço de Catálogo não respondeu a tempo.` (coberto pelos testes automatizados). |
 
 ## Como executar
 
@@ -253,7 +304,14 @@ python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
-Crie o arquivo `.env` na raiz `booknet/` com a variável `DATABASE_URL` (connection string do Neon). Esse arquivo é ignorado pelo Git e nunca deve ser enviado ao GitHub.
+Crie o arquivo `.env` na raiz `booknet/` com:
+
+```env
+DATABASE_URL=<connection string do Neon>
+BOOKNET_TOKEN_INTERNO=<um texto secreto qualquer, igual para os três serviços>
+```
+
+Esse arquivo é ignorado pelo Git e nunca deve ser enviado ao GitHub. Sem `BOOKNET_TOKEN_INTERNO`, os serviços usam um token padrão de desenvolvimento e mostram um aviso.
 
 ### 2. Criar ou atualizar as tabelas (migrations)
 
@@ -262,38 +320,40 @@ Crie o arquivo `.env` na raiz `booknet/` com a variável `DATABASE_URL` (connect
 .\.venv\Scripts\python.exe -m alembic current
 ```
 
-O banco do projeto no Neon já está na revisão `0002_usuarios_emprestimos (head)`. Rodar `upgrade head` novamente não altera nada.
+O banco do projeto no Neon já está na revisão `0003_dados_copiados_emprestimo (head)`. Rodar `upgrade head` novamente não altera nada.
 
-### 3. Iniciar a API (terminal 1)
-
-```powershell
-.\.venv\Scripts\python.exe -m uvicorn backend.main:app --reload --port 8000
-```
-
-### 4. Iniciar o Cliente Web (terminal 2)
+### 3. Iniciar tudo com um comando
 
 ```powershell
-cd cliente
-..\.venv\Scripts\python.exe -m http.server 8080 --bind 127.0.0.1
+.\.venv\Scripts\python.exe scripts\iniciar_servicos.py
 ```
 
-Acesse **[http://127.0.0.1:8080/](http://127.0.0.1:8080/)**. É preciso abrir pelo servidor HTTP, e não com duplo clique no `index.html`: o CORS da API libera apenas as origens `localhost`/`127.0.0.1` nas portas `8080` e `5500`.
+O iniciador sobe os **três serviços** (8001, 8002, 8003) e o **Cliente Web** (8080), cada um em um processo, e mostra os logs identificados por serviço. Se um serviço cair, os outros continuam. **Ctrl+C** encerra todos.
+
+Acesse **[http://127.0.0.1:8080/](http://127.0.0.1:8080/)**. É preciso abrir pelo servidor HTTP, e não com duplo clique no `index.html`, por causa das regras de CORS dos serviços.
+
+<details>
+<summary>Alternativa: cada serviço em um terminal separado</summary>
+
+```powershell
+.\.venv\Scripts\python.exe -m uvicorn backend.servicos.catalogo:app --port 8001      # terminal 1
+.\.venv\Scripts\python.exe -m uvicorn backend.servicos.usuarios:app --port 8002      # terminal 2
+.\.venv\Scripts\python.exe -m uvicorn backend.servicos.emprestimos:app --port 8003   # terminal 3
+.\.venv\Scripts\python.exe -m http.server 8080 --bind 127.0.0.1 --directory cliente # terminal 4
+```
+
+Fechar um dos terminais é a forma mais visual de mostrar um serviço caindo durante a apresentação.
+</details>
 
 ### Demonstração em duas máquinas (rede do laboratório)
 
-É a versão do BookNet do aquecimento da Aula 2 ("Computador A servidor, Computador B cliente"). Em vez de servir arquivos soltos, o Computador A roda a API e o Cliente Web, e o Computador B usa a biblioteca só pelo navegador, através da rede.
+É a versão do BookNet do aquecimento da Aula 2 ("Computador A servidor, Computador B cliente"). O Computador A roda os serviços e o Cliente Web, e o Computador B usa a biblioteca só pelo navegador, através da rede.
 
 **Computador A (servidor)**, na raiz `booknet/`:
 
 ```powershell
-ipconfig                                                               # anote o IPv4, ex.: 192.168.0.101
-.\.venv\Scripts\python.exe -m uvicorn backend.main:app --host 0.0.0.0 --port 8000
-```
-
-Em outro terminal, **dentro de `cliente/`**:
-
-```powershell
-..\.venv\Scripts\python.exe -m http.server 8080 --bind 0.0.0.0
+ipconfig                                                       # anote o IPv4, ex.: 192.168.0.101
+.\.venv\Scripts\python.exe scripts\iniciar_servicos.py --rede
 ```
 
 **Computador B (cliente)**:
@@ -305,29 +365,29 @@ ping 192.168.0.101
 No navegador, abra `http://192.168.0.101:8080`.
 
 ```text
-Computador B (navegador) ──HTTP :8080──▶ Computador A: arquivos do cliente
-Computador B (navegador) ──HTTP :8000──▶ Computador A: API FastAPI ──▶ PostgreSQL no Neon
+Computador B (navegador) ──HTTP :8080─────────────▶ Computador A: arquivos do cliente
+Computador B (navegador) ──HTTP/WS :8001/8002/8003─▶ Computador A: serviços ──▶ PostgreSQL no Neon
 ```
 
-O cliente descobre sozinho o endereço da API: ele usa o mesmo IP pelo qual foi aberto, na porta 8000. O CORS da API aceita origens de redes privadas (`10.x`, `172.16–31.x`, `192.168.x`) nas portas 8080 e 5500, e continua recusando origens da internet.
+O cliente descobre sozinho o endereço dos serviços: ele usa o mesmo IP pelo qual foi aberto, nas portas 8001 a 8003. Os serviços aceitam origens de redes privadas (`10.x`, `172.16–31.x`, `192.168.x`) nas portas 8080 e 5500, e continuam recusando origens da internet.
 
 Cuidados:
 
 - Na primeira execução, o Windows pode perguntar se permite o Python na rede. Permita em **rede privada**. Se o `ping` funcionar mas a página não abrir, o bloqueio é do firewall.
-- Use `--bind 0.0.0.0` **somente dentro de `cliente/`**. Servir a raiz `booknet/` exporia o `.env` para a rede.
+- O iniciador serve **somente a pasta `cliente/`** na porta 8080. Nunca sirva a raiz `booknet/`, que contém o `.env`.
 - Para a demonstração de concorrência, cada integrante pode clicar em **Emprestar** no mesmo exemplar, cada um no seu computador. Só um recebe o empréstimo.
 
-### 5. Dados de demonstração e teste de concorrência (opcional)
+### 4. Dados de demonstração e scripts (opcional)
 
-Com a API rodando:
+Com os serviços rodando:
 
 ```powershell
 .\.venv\Scripts\python.exe scripts\popular_dados.py       # 5 livros, 9 exemplares, 4 usuários
 .\.venv\Scripts\python.exe scripts\teste_concorrencia.py  # pedidos simultâneos pelo mesmo exemplar
-.\.venv\Scripts\python.exe scripts\monitor_eventos.py     # painel de eventos em tempo real (V2)
+.\.venv\Scripts\python.exe scripts\monitor_eventos.py     # painel de eventos dos três serviços
 ```
 
-`popular_dados.py` pode ser executado várias vezes, porque ignora registros que já existem. Cada execução de `teste_concorrencia.py` cria um exemplar novo (tombo `CONC-...`) no primeiro livro e, ao final, devolve o empréstimo.
+Os três aceitam o IP do Computador A como argumento (ex.: `scripts\monitor_eventos.py 192.168.0.101`). `popular_dados.py` pode ser executado várias vezes, porque ignora registros que já existem. Cada execução de `teste_concorrencia.py` cria um exemplar novo (tombo `CONC-...`) no primeiro livro e, ao final, devolve o empréstimo.
 
 ## Testes automatizados
 
@@ -335,21 +395,22 @@ Com a API rodando:
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
 
-**68 testes passando.** Eles usam SQLite em memória e não acessam o `.env` nem o Neon, porque qualquer tentativa de conexão PostgreSQL é bloqueada. Estão organizados assim:
+**79 testes passando.** Eles usam SQLite em memória e não acessam o `.env` nem o Neon, porque qualquer tentativa de conexão PostgreSQL é bloqueada. Os três serviços rodam dentro do processo de teste. As chamadas entre eles usam o cliente `httpx` real, com um transporte simulado que entrega cada pedido ao serviço de destino. Isso permite simular **serviço fora do ar** e **timeout** de forma controlada.
 
 | Arquivo | Cobertura |
 | --- | --- |
-| `tests/apoio.py` | Infraestrutura compartilhada: banco isolado por teste e cliente HTTP ASGI sem sockets. |
+| `tests/apoio.py` | Infraestrutura: banco isolado por teste, os três serviços ASGI e o transporte simulado entre eles. |
 | `tests/test_catalogo.py` | Rotas de sistema, CORS, livros, exemplares, busca, paginação, erros seguros e constraints. |
-| `tests/test_circulacao.py` | Usuários, fluxo completo de empréstimo e devolução, indisponibilidade, limite de 3, atraso, usuário e livro inativos, índice único parcial com rollback, filtros e constraints. |
-| `tests/test_eventos.py` | WebSocket (V2): boas-vindas e ping/pong, origem recusada (`1008`) e rede local aceita, broadcast de empréstimo e devolução para várias telas, ausência de evento em operação recusada, eventos de cadastro e remoção de conexão quebrada. |
+| `tests/test_circulacao.py` | Usuários, fluxo completo de empréstimo e devolução, indisponibilidade, limite de 3, atraso, usuário e livro inativos, índice único parcial com **compensação**, filtros e constraints. |
+| `tests/test_eventos.py` | WebSocket (V2): boas-vindas e ping/pong, origem recusada (`1008`), broadcast para várias telas, ausência de evento em operação recusada, **um canal por serviço** e remoção de conexão quebrada. |
+| `tests/test_servicos.py` | V3: cada serviço expõe só as próprias rotas, token das rotas internas, retirada e liberação idempotente, Usuários fora do ar (`503`), Catálogo lento (`504`), devolução desfeita e repetida, compensação que falha, lista de empréstimos com os outros serviços fora do ar, cópia dos dados do momento e erro `500` remoto virando `503`. |
 
-Validações adicionais feitas na entrega:
+Validações feitas contra o Neon, com os serviços reais:
 
-- `alembic upgrade head` foi aplicado no Neon e `alembic check` não detectou diferenças entre os modelos e o banco.
-- `teste_concorrencia.py` foi executado 4 vezes contra o Neon, sempre com exatamente 1 empréstimo aprovado.
-- O Cliente Web foi testado no navegador com dados reais da API.
-- V2: o navegador e o `monitor_eventos.py`, conectados pelo IP da rede local (`192.168.0.101`), receberam os eventos de empréstimos feitos por outro cliente, e a lista foi atualizada sem recarregar a página.
+- Migrations `0001` a `0003` aplicadas; `alembic check` não detectou diferenças entre os modelos e o banco. Os 10 empréstimos existentes receberam a cópia dos dados na migration `0003`.
+- `teste_concorrencia.py`: 4 execuções na V1 e 3 na V3 (atravessando os três serviços), sempre com exatamente 1 empréstimo aprovado.
+- V2: o navegador e o `monitor_eventos.py`, conectados pelo IP da rede local (`192.168.0.101`), receberam os eventos de empréstimos feitos por outro cliente.
+- V3: com o Catálogo desligado, o empréstimo respondeu `503` na hora; com o Empréstimos desligado, o Acervo continuou funcionando no navegador.
 
 ## Estrutura do projeto
 
@@ -359,27 +420,30 @@ booknet/
 ├── requirements.txt
 ├── alembic.ini
 ├── backend/
-│   ├── main.py                 # app FastAPI, CORS, rotas de sistema
-│   ├── config.py               # leitura do .env
+│   ├── servicos/               # V3: os três serviços (um processo cada)
+│   │   ├── base.py             # estrutura comum: CORS, erros, /health, /ws/eventos
+│   │   ├── catalogo.py         # porta 8001
+│   │   ├── usuarios.py         # porta 8002
+│   │   └── emprestimos.py      # porta 8003
+│   ├── servicos_remotos.py     # V3: cliente HTTP com timeout (Empréstimos → outros)
+│   ├── config.py               # leitura do .env (banco, endereços, token, timeout)
 │   ├── database.py             # engine PostgreSQL e sessões
 │   ├── errors.py               # respostas de erro seguras
 │   ├── eventos.py              # V2: canal WebSocket e broadcast de mensagens
 │   ├── origens.py              # origens permitidas (CORS e WebSocket)
-│   ├── dependencies/database.py
+│   ├── dependencies/           # sessão de banco e token das rotas internas
 │   ├── models/                 # Livro, Exemplar, Usuario, Emprestimo
 │   ├── schemas/                # validação Pydantic de entrada e saída
 │   └── routers/                # catalogo.py, usuarios.py, emprestimos.py
-├── migrations/versions/
-│   ├── 0001_catalogo_livros_exemplares.py
-│   └── 0002_usuarios_emprestimos.py
-├── tests/                      # apoio.py, test_catalogo.py, test_circulacao.py, test_eventos.py
-├── scripts/                    # popular_dados.py, teste_concorrencia.py, monitor_eventos.py
-├── cliente/                    # Cliente Web funcional (V1) com tempo real (V2)
+├── migrations/versions/        # 0001 catálogo · 0002 usuários e empréstimos · 0003 cópia de dados
+├── tests/                      # apoio.py e os testes de catálogo, circulação, eventos e serviços
+├── scripts/                    # iniciar_servicos, popular_dados, teste_concorrencia, monitor_eventos
+├── cliente/                    # Cliente Web funcional (V1), tempo real (V2), três serviços (V3)
+├── servico-catalogo/           # README do Serviço de Catálogo
+├── servico-usuarios/           # README do Serviço de Usuários
+├── servico-emprestimos/        # README do Serviço de Empréstimos
 ├── dashboard/                  # apresentação estática (V0)
 ├── docs/                       # arquitetura e guias de estudo
-├── servico-catalogo/           # reservado para a V3
-├── servico-usuarios/           # reservado para a V3
-├── servico-emprestimos/        # reservado para a V3
 └── banco/                      # reservado
 ```
 
@@ -387,19 +451,20 @@ booknet/
 
 | Componente | Porta | Situação |
 | --- | --- | --- |
-| API FastAPI (HTTP e WebSocket `/ws/eventos`) | 8000 | Implementada (V1 e V2). |
-| Cliente Web / dashboard | 8080 | Implementado (servidor estático). |
-| Serviço de Catálogo | 8001 | Planejado (V3). |
-| Serviço de Usuários | 8002 | Planejado (V3). |
-| Serviço de Empréstimos | 8003 | Planejado (V3). |
+| Serviço de Catálogo | 8001 | Implementado (V3). |
+| Serviço de Usuários | 8002 | Implementado (V3). |
+| Serviço de Empréstimos | 8003 | Implementado (V3). |
+| Cliente Web | 8080 | Implementado (servidor estático). |
+
+A porta 8000, da API única das versões V1 e V2, deixou de ser usada.
 
 ## Situações de falha
 
-| Falha documentada na V0 | Situação na V2 |
+| Falha documentada na V0 | Situação na V3 |
 | --- | --- |
-| 1. Serviço de Empréstimos indisponível | Ainda não se aplica: os módulos rodam no mesmo processo. A indisponibilidade do **banco** já é detectada e informada com `503`. Será estudada com serviços separados (V3/V5). |
-| 2. Dois usuários pedem o mesmo exemplar | **Resolvida**: UPDATE condicional atômico e índice único parcial, demonstrados contra o Neon. |
-| 3. Falha de comunicação Empréstimos → Catálogo | Ainda não se aplica, porque não há chamada de rede entre serviços. O conceito de timeout já existe na conexão com o banco (`connect_timeout=10`). Será tratada na V3/V5 com timeout e repetição. |
+| 1. Serviço de Empréstimos indisponível | **Isolada**: com o Empréstimos fora do ar, Catálogo e Usuários continuam funcionando e o cliente informa qual serviço caiu. Recuperação automática (reiniciar o serviço) fica para a V5/V6. |
+| 2. Dois usuários pedem o mesmo exemplar | **Resolvida** entre serviços: retirada atômica no Catálogo, índice único parcial e compensação, demonstrados contra o Neon. |
+| 3. Falha de comunicação Empréstimos → Catálogo | **Tratada**: tempo limite de 3s, respostas `503`/`504` claras, compensação e devolução que pode ser repetida. Novas tentativas automáticas ficam para a V5. |
 
 ## Evolução
 
@@ -408,17 +473,20 @@ booknet/
 | **V0** | **Ideia e arquitetura** | **Concluída** |
 | **V1** | **Cliente-servidor** | **Concluída**: API completa, banco no Neon, Cliente Web funcional, concorrência tratada. |
 | **V2** | **Sockets / mensagens** | **Concluída**: WebSocket com broadcast de eventos, cliente em tempo real com reconexão, monitor de terminal. |
-| V3 | Serviços separados | Planejada |
+| **V3** | **Serviços separados** | **Concluída**: três processos (8001–8003), comunicação HTTP com timeout, saga com compensação, rotas internas com token, falhas 1 e 3 demonstradas. |
 | V4 | Docker | Planejada |
 | V5 | Falhas e recuperação | Planejada |
 | V6 | Orquestração | Planejada |
+
+Cada versão concluída está marcada com uma *tag* no Git (`v1`, `v2`, `v3`).
 
 ## Tecnologias
 
 | Tecnologia | Uso |
 | --- | --- |
-| Python 3.13 | Linguagem do backend. |
-| FastAPI + Uvicorn | API HTTP/REST, WebSocket e servidor ASGI. |
+| Python 3.13 | Linguagem dos serviços. |
+| FastAPI + Uvicorn | Serviços HTTP/REST e WebSocket, servidor ASGI. |
+| httpx | Cliente HTTP entre serviços, com tempo limite (V3). |
 | websockets | Suporte a WebSocket no Uvicorn e cliente do `monitor_eventos.py`. |
 | SQLAlchemy 2 + psycopg 3 | ORM, transações e driver PostgreSQL. |
 | Alembic | Migrations versionadas do banco. |
@@ -426,7 +494,7 @@ booknet/
 | python-dotenv | Leitura do `.env`. |
 | PostgreSQL / Neon | Banco de dados na nuvem. |
 | HTML, CSS e JavaScript puro | Cliente Web e dashboard, sem frameworks. |
-| unittest | Testes automatizados, sem pytest ou httpx. |
+| unittest | Testes automatizados. |
 | Git / GitHub | Versionamento e hospedagem. |
 
 ## Repositório

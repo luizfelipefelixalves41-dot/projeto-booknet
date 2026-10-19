@@ -1,10 +1,16 @@
-"""Empréstimos e devoluções com mudanças de estado atômicas.
+"""Serviço de Empréstimos (V3): coordena Usuários e Catálogo por HTTP.
 
-Concorrência (falha 2 da V0): a retirada usa um UPDATE condicional
-``status = 'DISPONIVEL'``. Se duas requisições disputarem o mesmo exemplar, o
-PostgreSQL bloqueia a linha e apenas a primeira altera o status; a segunda
-recebe 0 linhas afetadas e responde 409. O índice único parcial
-``uq_emprestimos_exemplar_ativo`` é a garantia final no banco.
+Fluxo de um empréstimo (saga com compensação):
+
+1. pergunta ao Serviço de Usuários se o usuário existe e está ativo;
+2. confere as regras locais (limite de ativos e atraso), com o usuário travado;
+3. pede ao Serviço de Catálogo a retirada atômica do exemplar (falha 2 da V0);
+4. grava o empréstimo no próprio banco.
+
+Se o passo 4 falhar depois de o Catálogo já ter retirado o exemplar, o serviço
+executa a **compensação**: pede a liberação do exemplar, desfazendo o passo 3.
+O índice único parcial ``uq_emprestimos_exemplar_ativo`` continua sendo a última
+garantia de um empréstimo ativo por exemplar.
 """
 
 import logging
@@ -12,38 +18,26 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Annotated, Any
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Path, Query, status
-from sqlalchemy import Select, func, select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from backend.dependencies.database import get_db
-from backend.eventos import central
+from backend.eventos import Central
 from backend.models.emprestimo import Emprestimo, StatusEmprestimo
-from backend.models.exemplar import Exemplar, StatusExemplar
-from backend.models.livro import Livro
-from backend.models.usuario import Usuario
 from backend.schemas.emprestimo import EmprestimoCreate, EmprestimoResponse
+from backend.servicos_remotos import ServicosRemotos, obter_servicos_remotos
 
 
 router = APIRouter(prefix="/emprestimos", tags=["Empréstimos"])
 logger = logging.getLogger("booknet.emprestimos")
 Banco = Annotated[Session, Depends(get_db, scope="function")]
+Servicos = Annotated[ServicosRemotos, Depends(obter_servicos_remotos)]
 EmprestimoId = Annotated[int, Path(gt=0)]
 
 LIMITE_EMPRESTIMOS_ATIVOS = 3
 
 
-def _consulta_detalhada() -> Select:
-    return (
-        select(Emprestimo, Usuario.nome, Exemplar.codigo_tombo, Livro.id, Livro.titulo)
-        .join(Usuario, Usuario.id == Emprestimo.usuario_id)
-        .join(Exemplar, Exemplar.id == Emprestimo.exemplar_id)
-        .join(Livro, Livro.id == Exemplar.livro_id)
-        .execution_options(populate_existing=True)
-    )
-
-
-def _montar_resposta(linha) -> dict[str, Any]:
-    emprestimo, usuario_nome, codigo_tombo, livro_id, livro_titulo = linha
+def _montar_resposta(emprestimo: Emprestimo) -> dict[str, Any]:
     return {
         "id": emprestimo.id,
         "usuario_id": emprestimo.usuario_id,
@@ -54,18 +48,39 @@ def _montar_resposta(linha) -> dict[str, Any]:
         "status": emprestimo.status,
         "atrasado": emprestimo.status == StatusEmprestimo.ATIVO
         and emprestimo.data_prevista_devolucao < date.today(),
-        "usuario_nome": usuario_nome,
-        "codigo_tombo": codigo_tombo,
-        "livro_id": livro_id,
-        "livro_titulo": livro_titulo,
+        "usuario_nome": emprestimo.usuario_nome,
+        "codigo_tombo": emprestimo.codigo_tombo,
+        "livro_id": emprestimo.livro_id,
+        "livro_titulo": emprestimo.livro_titulo,
     }
 
 
-def _detalhar(db: Session, emprestimo_id: int) -> dict[str, Any]:
-    linha = db.execute(_consulta_detalhada().where(Emprestimo.id == emprestimo_id)).one_or_none()
-    if linha is None:
+def _buscar(db: Session, emprestimo_id: int) -> Emprestimo:
+    emprestimo = db.get(Emprestimo, emprestimo_id, populate_existing=True)
+    if emprestimo is None:
         raise HTTPException(status_code=404, detail="Empréstimo não encontrado.")
-    return _montar_resposta(linha)
+    return emprestimo
+
+
+def _travar_usuario(db: Session, usuario_id: int) -> None:
+    """Serializa pedidos simultâneos do mesmo usuário até o fim da transação.
+
+    Na V1 isso era um SELECT ... FOR UPDATE na tabela de usuários; agora essa tabela
+    pertence a outro serviço, então usamos uma trava consultiva do PostgreSQL,
+    identificada pelo número do usuário. O SQLite dos testes não tem esse recurso.
+    """
+    if db.get_bind().dialect.name == "postgresql":
+        db.execute(select(func.pg_advisory_xact_lock(usuario_id)))
+
+
+def _compensar_retirada(servicos: ServicosRemotos, exemplar_id: int) -> None:
+    try:
+        servicos.liberar_exemplar(exemplar_id)
+        logger.warning("Compensação executada: exemplar %s liberado.", exemplar_id)
+    except Exception:
+        # Sem a compensação, o exemplar fica EMPRESTADO sem empréstimo: a V5 trata
+        # isso com novas tentativas. Aqui o problema fica registrado no log.
+        logger.error("Compensação falhou: exemplar %s pode ter ficado indisponível.", exemplar_id)
 
 
 @router.get("", response_model=list[EmprestimoResponse], summary="Listar empréstimos")
@@ -77,7 +92,7 @@ def listar_emprestimos(
     skip: Annotated[int, Query(ge=0)] = 0,
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
 ) -> list[dict[str, Any]]:
-    consulta = _consulta_detalhada()
+    consulta = select(Emprestimo)
     if usuario_id is not None:
         consulta = consulta.where(Emprestimo.usuario_id == usuario_id)
     if status_emprestimo is not None:
@@ -88,12 +103,12 @@ def listar_emprestimos(
             Emprestimo.data_prevista_devolucao < date.today(),
         )
     consulta = consulta.order_by(Emprestimo.id.desc()).offset(skip).limit(limit)
-    return [_montar_resposta(linha) for linha in db.execute(consulta).all()]
+    return [_montar_resposta(item) for item in db.scalars(consulta).all()]
 
 
 @router.get("/{emprestimo_id}", response_model=EmprestimoResponse, summary="Consultar empréstimo")
 def consultar_emprestimo(emprestimo_id: EmprestimoId, db: Banco) -> dict[str, Any]:
-    return _detalhar(db, emprestimo_id)
+    return _montar_resposta(_buscar(db, emprestimo_id))
 
 
 @router.post(
@@ -103,17 +118,21 @@ def consultar_emprestimo(emprestimo_id: EmprestimoId, db: Banco) -> dict[str, An
     summary="Registrar empréstimo",
 )
 def criar_emprestimo(
-    dados: EmprestimoCreate, db: Banco, tarefas: BackgroundTasks
+    dados: EmprestimoCreate,
+    db: Banco,
+    servicos: Servicos,
+    tarefas: BackgroundTasks,
+    central: Central,
 ) -> dict[str, Any]:
-    # FOR UPDATE serializa pedidos simultâneos do mesmo usuário (limite de ativos).
-    usuario = db.get(Usuario, dados.usuario_id, with_for_update=True)
-    if usuario is None:
-        raise HTTPException(status_code=404, detail="Usuário não encontrado.")
-    if not usuario.ativo:
+    # 1. Serviço de Usuários: o usuário existe e está ativo?
+    usuario = servicos.buscar_usuario(dados.usuario_id)
+    if not usuario["ativo"]:
         raise HTTPException(status_code=409, detail="Usuário inativo não pode realizar empréstimos.")
 
+    # 2. Regras locais, com o usuário travado contra pedidos simultâneos.
+    _travar_usuario(db, dados.usuario_id)
     filtro_ativos = (
-        Emprestimo.usuario_id == usuario.id,
+        Emprestimo.usuario_id == dados.usuario_id,
         Emprestimo.status == StatusEmprestimo.ATIVO,
     )
     if db.scalar(select(func.count()).where(*filtro_ativos)) >= LIMITE_EMPRESTIMOS_ATIVOS:
@@ -127,33 +146,33 @@ def criar_emprestimo(
     if db.scalar(atrasado.limit(1)) is not None:
         raise HTTPException(status_code=409, detail="Usuário possui empréstimo em atraso.")
 
-    exemplar = db.get(Exemplar, dados.exemplar_id)
-    if exemplar is None:
-        raise HTTPException(status_code=404, detail="Exemplar não encontrado.")
-    if not db.scalar(select(Livro.ativo).where(Livro.id == exemplar.livro_id)):
-        raise HTTPException(status_code=409, detail="O livro deste exemplar está inativo.")
+    # 3. Serviço de Catálogo: retirada atômica (só um pedido concorrente vence).
+    exemplar = servicos.retirar_exemplar(dados.exemplar_id)
 
-    retirada = db.execute(
-        update(Exemplar)
-        .where(Exemplar.id == exemplar.id, Exemplar.status == StatusExemplar.DISPONIVEL)
-        .values(status=StatusExemplar.EMPRESTADO)
-    )
-    if retirada.rowcount != 1:
-        raise HTTPException(status_code=409, detail="Exemplar não está disponível.")
-
-    agora = datetime.now(timezone.utc)
+    # 4. Registro local; se falhar, compensa a retirada feita no passo 3.
     emprestimo = Emprestimo(
-        usuario_id=usuario.id,
-        exemplar_id=exemplar.id,
-        data_emprestimo=agora,
+        usuario_id=dados.usuario_id,
+        exemplar_id=dados.exemplar_id,
+        data_emprestimo=datetime.now(timezone.utc),
         data_prevista_devolucao=date.today() + timedelta(days=dados.prazo_dias),
         status=StatusEmprestimo.ATIVO,
+        usuario_nome=usuario["nome"],
+        codigo_tombo=exemplar["codigo_tombo"],
+        livro_id=exemplar["livro_id"],
+        livro_titulo=exemplar["livro_titulo"],
     )
-    db.add(emprestimo)
-    db.commit()
+    try:
+        db.add(emprestimo)
+        db.commit()
+    except Exception:
+        db.rollback()
+        _compensar_retirada(servicos, dados.exemplar_id)
+        raise
     logger.info("Empréstimo registrado com sucesso. id=%s", emprestimo.id)
-    resposta = _detalhar(db, emprestimo.id)
-    tarefas.add_task(central.publicar, "emprestimo.criado", resposta)
+    resposta = _montar_resposta(emprestimo)
+    tarefas.add_task(
+        central.publicar, "emprestimo.criado", EmprestimoResponse.model_validate(resposta)
+    )
     return resposta
 
 
@@ -163,12 +182,13 @@ def criar_emprestimo(
     summary="Registrar devolução",
 )
 def devolver_emprestimo(
-    emprestimo_id: EmprestimoId, db: Banco, tarefas: BackgroundTasks
+    emprestimo_id: EmprestimoId,
+    db: Banco,
+    servicos: Servicos,
+    tarefas: BackgroundTasks,
+    central: Central,
 ) -> dict[str, Any]:
-    emprestimo = db.get(Emprestimo, emprestimo_id)
-    if emprestimo is None:
-        raise HTTPException(status_code=404, detail="Empréstimo não encontrado.")
-
+    emprestimo = _buscar(db, emprestimo_id)
     devolucao = db.execute(
         update(Emprestimo)
         .where(Emprestimo.id == emprestimo_id, Emprestimo.status == StatusEmprestimo.ATIVO)
@@ -176,13 +196,13 @@ def devolver_emprestimo(
     )
     if devolucao.rowcount != 1:
         raise HTTPException(status_code=409, detail="Empréstimo já devolvido.")
-    db.execute(
-        update(Exemplar)
-        .where(Exemplar.id == emprestimo.exemplar_id)
-        .values(status=StatusExemplar.DISPONIVEL)
-    )
+    # Só confirma a devolução se o Catálogo liberar o exemplar. Se ele estiver fora
+    # do ar, a transação é desfeita (503/504) e a devolução pode ser repetida depois.
+    servicos.liberar_exemplar(emprestimo.exemplar_id)
     db.commit()
     logger.info("Devolução registrada com sucesso. id=%s", emprestimo_id)
-    resposta = _detalhar(db, emprestimo_id)
-    tarefas.add_task(central.publicar, "emprestimo.devolvido", resposta)
+    resposta = _montar_resposta(_buscar(db, emprestimo_id))
+    tarefas.add_task(
+        central.publicar, "emprestimo.devolvido", EmprestimoResponse.model_validate(resposta)
+    )
     return resposta

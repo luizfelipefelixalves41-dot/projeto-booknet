@@ -4,19 +4,26 @@ import logging
 from typing import Annotated
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Path, Query, status
-from sqlalchemy import or_, select
+from sqlalchemy import or_, select, update
 from sqlalchemy.orm import Session
 
 from backend.dependencies.database import get_db
-from backend.eventos import central
-from backend.models.exemplar import Exemplar
+from backend.dependencies.interno import exigir_token_interno
+from backend.eventos import Central
+from backend.models.exemplar import Exemplar, StatusExemplar
 from backend.models.livro import Livro
-from backend.schemas.exemplar import ExemplarCreate, ExemplarResponse
+from backend.schemas.exemplar import ExemplarCreate, ExemplarResponse, ExemplarRetiradaResponse
 from backend.schemas.livro import LivroCreate, LivroResponse, LivroUpdate
 
 
 router = APIRouter(prefix="/livros", tags=["Catálogo"])
 router_exemplares = APIRouter(prefix="/exemplares", tags=["Catálogo"])
+# Rotas chamadas pelo Serviço de Empréstimos, não pelo navegador.
+router_interno = APIRouter(
+    prefix="/interno/exemplares",
+    tags=["Catálogo (interno)"],
+    dependencies=[Depends(exigir_token_interno)],
+)
 logger = logging.getLogger("booknet.catalogo")
 Banco = Annotated[Session, Depends(get_db, scope="function")]
 LivroId = Annotated[int, Path(gt=0)]
@@ -57,7 +64,7 @@ def consultar_livro(livro_id: LivroId, db: Banco) -> Livro:
 @router.post(
     "", response_model=LivroResponse, status_code=status.HTTP_201_CREATED, summary="Cadastrar livro"
 )
-def criar_livro(dados: LivroCreate, db: Banco, tarefas: BackgroundTasks) -> Livro:
+def criar_livro(dados: LivroCreate, db: Banco, tarefas: BackgroundTasks, central: Central) -> Livro:
     livro = Livro(**dados.model_dump())
     db.add(livro)
     db.commit()
@@ -69,7 +76,7 @@ def criar_livro(dados: LivroCreate, db: Banco, tarefas: BackgroundTasks) -> Livr
 
 @router.put("/{livro_id}", response_model=LivroResponse, summary="Atualizar livro")
 def atualizar_livro(
-    livro_id: LivroId, dados: LivroUpdate, db: Banco, tarefas: BackgroundTasks
+    livro_id: LivroId, dados: LivroUpdate, db: Banco, tarefas: BackgroundTasks, central: Central
 ) -> Livro:
     livro = _buscar_livro(db, livro_id)
     for campo, valor in dados.model_dump().items():
@@ -97,7 +104,7 @@ def listar_exemplares(livro_id: LivroId, db: Banco) -> list[Exemplar]:
     summary="Cadastrar exemplar",
 )
 def criar_exemplar(
-    livro_id: LivroId, dados: ExemplarCreate, db: Banco, tarefas: BackgroundTasks
+    livro_id: LivroId, dados: ExemplarCreate, db: Banco, tarefas: BackgroundTasks, central: Central
 ) -> Exemplar:
     _buscar_livro(db, livro_id)
     exemplar = Exemplar(livro_id=livro_id, **dados.model_dump())
@@ -115,7 +122,57 @@ def criar_exemplar(
     "/{exemplar_id}", response_model=ExemplarResponse, summary="Consultar disponibilidade do exemplar"
 )
 def consultar_exemplar(exemplar_id: Annotated[int, Path(gt=0)], db: Banco) -> Exemplar:
+    return _buscar_exemplar(db, exemplar_id)
+
+
+def _buscar_exemplar(db: Session, exemplar_id: int) -> Exemplar:
     exemplar = db.get(Exemplar, exemplar_id)
     if exemplar is None:
         raise HTTPException(status_code=404, detail="Exemplar não encontrado.")
+    return exemplar
+
+
+@router_interno.post(
+    "/{exemplar_id}/retirada",
+    response_model=ExemplarRetiradaResponse,
+    summary="Reservar o exemplar para um empréstimo (atômico)",
+)
+def retirar_exemplar(exemplar_id: Annotated[int, Path(gt=0)], db: Banco) -> dict:
+    """Falha 2 da V0: o UPDATE condicional só altera o exemplar se ele ainda estiver
+    DISPONIVEL. Com pedidos simultâneos, o PostgreSQL bloqueia a linha e apenas o
+    primeiro altera o status; os demais encontram 0 linhas e recebem 409."""
+    exemplar = _buscar_exemplar(db, exemplar_id)
+    livro = db.get(Livro, exemplar.livro_id)
+    if not livro.ativo:
+        raise HTTPException(status_code=409, detail="O livro deste exemplar está inativo.")
+    retirada = db.execute(
+        update(Exemplar)
+        .where(Exemplar.id == exemplar_id, Exemplar.status == StatusExemplar.DISPONIVEL)
+        .values(status=StatusExemplar.EMPRESTADO)
+    )
+    if retirada.rowcount != 1:
+        raise HTTPException(status_code=409, detail="Exemplar não está disponível.")
+    db.commit()
+    db.refresh(exemplar)
+    logger.info("Exemplar retirado para empréstimo. id=%s", exemplar_id)
+    return {**ExemplarResponse.model_validate(exemplar).model_dump(), "livro_titulo": livro.titulo}
+
+
+@router_interno.post(
+    "/{exemplar_id}/liberacao",
+    response_model=ExemplarResponse,
+    summary="Devolver o exemplar ao acervo (devolução ou compensação)",
+)
+def liberar_exemplar(exemplar_id: Annotated[int, Path(gt=0)], db: Banco) -> Exemplar:
+    """Idempotente: liberar um exemplar já disponível não é erro. Assim o Serviço de
+    Empréstimos pode repetir o pedido com segurança se a primeira resposta se perder."""
+    exemplar = _buscar_exemplar(db, exemplar_id)
+    db.execute(
+        update(Exemplar)
+        .where(Exemplar.id == exemplar_id)
+        .values(status=StatusExemplar.DISPONIVEL)
+    )
+    db.commit()
+    db.refresh(exemplar)
+    logger.info("Exemplar liberado. id=%s", exemplar_id)
     return exemplar

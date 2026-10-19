@@ -28,3 +28,9 @@ class ExemplarResponse(BaseModel):
     codigo_tombo: str
     status: StatusExemplar
     criado_em: datetime
+
+
+class ExemplarRetiradaResponse(ExemplarResponse):
+    """Resposta da retirada: inclui o título para o Serviço de Empréstimos guardar."""
+
+    livro_titulo: str

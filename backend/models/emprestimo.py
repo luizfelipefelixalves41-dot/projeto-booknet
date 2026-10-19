@@ -6,7 +6,7 @@ from datetime import date, datetime
 from enum import Enum
 
 from sqlalchemy import CheckConstraint, Date, DateTime, Enum as SQLAlchemyEnum
-from sqlalchemy import ForeignKey, Index, func, text
+from sqlalchemy import ForeignKey, Index, String, func, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.models.base import Base
@@ -65,3 +65,11 @@ class Emprestimo(Base):
         nullable=False,
         server_default=StatusEmprestimo.ATIVO.value,
     )
+
+    # V3: cópia dos dados de outros serviços no momento do empréstimo. Assim o
+    # Serviço de Empréstimos lista e exibe seus registros sem consultar as tabelas
+    # de Usuários e Catálogo, e continua funcionando se eles estiverem fora do ar.
+    usuario_nome: Mapped[str] = mapped_column(String(255), nullable=False)
+    codigo_tombo: Mapped[str] = mapped_column(String(50), nullable=False)
+    livro_id: Mapped[int] = mapped_column(nullable=False)
+    livro_titulo: Mapped[str] = mapped_column(String(255), nullable=False)

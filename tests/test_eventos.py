@@ -9,15 +9,16 @@ import asyncio
 import json
 import unittest
 
-from tests.apoio import BancoIsoladoTestCase, _requisicao_asgi, app
-from backend.eventos import CentralDeEventos, central
+from tests.apoio import APPS, BancoIsoladoTestCase, _requisicao_asgi, app_emprestimos
+from backend.eventos import CentralDeEventos
 
 
 class ConexaoWS:
     """Cliente WebSocket mínimo falando ASGI diretamente com a aplicação."""
 
-    def __init__(self, origem: str | None = "http://localhost:8080"):
+    def __init__(self, origem: str | None = "http://localhost:8080", servico: str = "emprestimos"):
         self.origem = origem
+        self.app = APPS[servico]
         self.entrada: asyncio.Queue = asyncio.Queue()
         self.saida: asyncio.Queue = asyncio.Queue()
         self.tarefa: asyncio.Task | None = None
@@ -41,7 +42,7 @@ class ConexaoWS:
             "subprotocols": [],
         }
         await self.entrada.put({"type": "websocket.connect"})
-        self.tarefa = asyncio.create_task(app(escopo, self.entrada.get, self.saida.put))
+        self.tarefa = asyncio.create_task(self.app(escopo, self.entrada.get, self.saida.put))
         return await asyncio.wait_for(self.saida.get(), 2)
 
     async def receber(self, tipo: str) -> dict:
@@ -78,7 +79,7 @@ class EventosTestes(BancoIsoladoTestCase):
             await ws.enviar("ping")
             self.assertEqual((await ws.receber("pong"))["dados"], {})
             await ws.fechar()
-            self.assertEqual(central.total, 0)
+            self.assertEqual(app_emprestimos.state.central.total, 0)
 
         self.executar(cenario)
 
@@ -94,7 +95,7 @@ class EventosTestes(BancoIsoladoTestCase):
                     ws = ConexaoWS(origem)
                     self.assertEqual((await ws.abrir())["type"], "websocket.accept")
                     await ws.fechar()
-            self.assertEqual(central.total, 0)
+            self.assertEqual(app_emprestimos.state.central.total, 0)
 
         self.executar(cenario)
 
@@ -152,21 +153,30 @@ class EventosTestes(BancoIsoladoTestCase):
 
         self.executar(cenario)
 
-    def test_cadastros_geram_eventos(self):
+    def test_cada_servico_avisa_no_proprio_canal(self):
         async def cenario():
-            ws = ConexaoWS()
-            await ws.abrir()
+            canais = {nome: ConexaoWS(servico=nome) for nome in ("catalogo", "usuarios", "emprestimos")}
+            for canal in canais.values():
+                await canal.abrir()
+                await canal.receber("conexoes.alteradas")
             livro = (await _requisicao_asgi(
                 "POST", "/livros", {"titulo": "Novo", "autor": "Autora", "isbn": "000999"}
             )).json()
-            self.assertEqual((await ws.receber("livro.criado"))["dados"], livro)
+            self.assertEqual((await canais["catalogo"].receber("livro.criado"))["dados"], livro)
             await _requisicao_asgi("POST", f"/livros/{livro['id']}/exemplares", {"codigo_tombo": "EV-1"})
-            self.assertEqual((await ws.receber("exemplar.criado"))["dados"]["codigo_tombo"], "EV-1")
+            self.assertEqual(
+                (await canais["catalogo"].receber("exemplar.criado"))["dados"]["codigo_tombo"], "EV-1"
+            )
             await _requisicao_asgi(
                 "POST", "/usuarios", {"nome": "Ana", "email": "ana@booknet.test", "matricula": "EV-9"}
             )
-            self.assertEqual((await ws.receber("usuario.criado"))["dados"]["nome"], "Ana")
-            await ws.fechar()
+            self.assertEqual((await canais["usuarios"].receber("usuario.criado"))["dados"]["nome"], "Ana")
+            await asyncio.sleep(0)
+            # V3: processos separados, centrais separadas. Nada vaza para outro canal.
+            self.assertEqual(canais["emprestimos"].pendentes(), [])
+            self.assertEqual(canais["usuarios"].pendentes(), [])
+            for canal in canais.values():
+                await canal.fechar()
 
         self.executar(cenario)
 
@@ -190,11 +200,12 @@ class EventosTestes(BancoIsoladoTestCase):
         self.assertEqual(nova.total, 1)
         self.assertEqual(saudavel.recebidas[0]["dados"], {"n": 1})
 
-    def test_swagger_mantem_rotas_http_e_versao_2(self):
-        documento = self.requisicao("GET", "/openapi.json").json()
-        self.assertEqual(documento["info"]["version"], "2.0.0")
-        self.assertEqual(self.requisicao("GET", "/").json()["versao"], "V2")
-
+    def test_servicos_identificam_versao_3(self):
+        for nome in APPS:
+            with self.subTest(servico=nome):
+                documento = self.requisicao("GET", "/openapi.json", servico=nome).json()
+                self.assertEqual(documento["info"]["version"], "3.0.0")
+                self.assertEqual(self.requisicao("GET", "/", servico=nome).json()["versao"], "V3")
 
 if __name__ == "__main__":
     unittest.main()

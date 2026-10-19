@@ -1,6 +1,6 @@
 """Cadastra dados de demonstração pela API (cliente HTTP, sem acesso direto ao banco).
 
-Uso, com a API em execução na porta 8000:
+Uso, com os serviços em execução (scripts\iniciar_servicos.py):
     .venv\\Scripts\\python.exe scripts\\popular_dados.py
 
 Pode ser executado mais de uma vez: registros já existentes (409) são ignorados.
@@ -11,7 +11,13 @@ import sys
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
-API = sys.argv[1] if len(sys.argv) > 1 else "http://127.0.0.1:8000"
+HOST = sys.argv[1] if len(sys.argv) > 1 else "127.0.0.1"
+PORTAS = {"/usuarios": 8002, "/emprestimos": 8003}  # V3: o resto é do Catálogo (8001)
+
+
+def url_do_servico(caminho: str) -> str:
+    porta = next((p for prefixo, p in PORTAS.items() if caminho.startswith(prefixo)), 8001)
+    return f"http://{HOST}:{porta}{caminho}"
 
 LIVROS = [
     ("Sistemas Distribuídos: Princípios e Paradigmas", "Andrew S. Tanenbaum", "9788576051428", 3),
@@ -31,7 +37,7 @@ USUARIOS = [
 def chamar(metodo, caminho, dados=None):
     corpo = json.dumps(dados).encode("utf-8") if dados is not None else None
     requisicao = Request(
-        API + caminho, data=corpo, method=metodo, headers={"Content-Type": "application/json"}
+        url_do_servico(caminho), data=corpo, method=metodo, headers={"Content-Type": "application/json"}
     )
     try:
         with urlopen(requisicao, timeout=30) as resposta:

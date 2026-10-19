@@ -7,13 +7,17 @@ algo muda no acervo, a API publica uma mensagem JSON para todas as conexões:
 
 Diferente do HTTP (o cliente pergunta, o servidor responde), aqui o servidor
 toma a iniciativa de avisar os clientes, sem que eles precisem perguntar.
+
+V3: cada serviço é um processo próprio e tem a sua central (``app.state.central``),
+com as mensagens do seu domínio: Catálogo avisa sobre livros e exemplares,
+Usuários sobre usuários e Empréstimos sobre empréstimos e devoluções.
 """
 
 import logging
 from datetime import datetime, timezone
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, status
+from fastapi import APIRouter, Depends, Request, WebSocket, WebSocketDisconnect, status
 from fastapi.encoders import jsonable_encoder
 
 from backend.origens import origem_permitida
@@ -64,7 +68,11 @@ class CentralDeEventos:
         }
 
 
-central = CentralDeEventos()
+def obter_central(request: Request) -> CentralDeEventos:
+    return request.app.state.central
+
+
+Central = Annotated[CentralDeEventos, Depends(obter_central)]
 
 
 @router.websocket("/ws/eventos")
@@ -72,6 +80,7 @@ async def canal_de_eventos(websocket: WebSocket) -> None:
     if not origem_permitida(websocket.headers.get("origin")):
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
+    central: CentralDeEventos = websocket.app.state.central
     await central.conectar(websocket)
     try:
         while True:

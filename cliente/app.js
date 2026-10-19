@@ -1,9 +1,22 @@
 "use strict";
 
-// Cliente Web do BookNet: conversa com a API FastAPI por HTTP/REST (JSON).
-// A API fica na mesma máquina que serve o cliente, na porta 8000. Assim, abrindo
-// http://IP_DO_SERVIDOR:8080 em outro computador, o navegador fala com IP_DO_SERVIDOR:8000.
-const API = `http://${location.hostname || "127.0.0.1"}:8000`;
+// Cliente Web do BookNet: conversa com os serviços por HTTP/REST (JSON) e WebSocket.
+// V3: cada responsabilidade é um serviço separado, na mesma máquina que serve o
+// cliente. Abrindo http://IP_DO_SERVIDOR:8080 em outro computador, o navegador
+// fala com IP_DO_SERVIDOR:8001, :8002 e :8003.
+const HOST = location.hostname || "127.0.0.1";
+const SERVICOS = {
+  catalogo: { nome: "Catálogo", url: `http://${HOST}:8001`, porta: 8001 },
+  usuarios: { nome: "Usuários", url: `http://${HOST}:8002`, porta: 8002 },
+  emprestimos: { nome: "Empréstimos", url: `http://${HOST}:8003`, porta: 8003 },
+};
+
+/** Cada rota pertence a um serviço, como no desenho da arquitetura. */
+function servicoDaRota(caminho) {
+  if (caminho.startsWith("/usuarios")) return SERVICOS.usuarios;
+  if (caminho.startsWith("/emprestimos")) return SERVICOS.emprestimos;
+  return SERVICOS.catalogo;
+}
 
 const $ = (seletor, raiz = document) => raiz.querySelector(seletor);
 const $$ = (seletor, raiz = document) => [...raiz.querySelectorAll(seletor)];
@@ -40,15 +53,16 @@ function mensagemDeErro(corpo, status) {
 }
 
 async function api(metodo, caminho, dados) {
+  const servico = servicoDaRota(caminho);
   let resposta;
   try {
-    resposta = await fetch(API + caminho, {
+    resposta = await fetch(servico.url + caminho, {
       method: metodo,
       headers: dados ? { "Content-Type": "application/json" } : {},
       body: dados ? JSON.stringify(dados) : undefined,
     });
   } catch {
-    throw new Error("Não foi possível falar com a API. Ela está em execução na porta 8000?");
+    throw new Error(`Serviço de ${servico.nome} fora do ar (porta ${servico.porta}).`);
   }
   const corpo = await resposta.json().catch(() => null);
   if (!resposta.ok) throw new Error(mensagemDeErro(corpo, resposta.status));
@@ -62,26 +76,32 @@ function vazio(texto) {
   return el("div", { class: "empty" }, texto);
 }
 
-/* ---------- Estado da API ---------- */
+/* ---------- Estado dos serviços ---------- */
 
 async function verificarStatus() {
-  const caixa = $("#status-api");
-  const texto = $(".status-text", caixa);
-  try {
-    const banco = await fetch(`${API}/health/database`).then((r) => r.json());
-    const online = banco.database === "online";
-    caixa.className = `status ${online ? "ok" : "erro"}`;
-    texto.textContent = online ? "API e banco online" : "API online · banco offline";
-  } catch {
-    caixa.className = "status erro";
-    texto.textContent = "API offline";
-  }
+  const grupo = $("#status-servicos");
+  const indicadores = await Promise.all(
+    Object.values(SERVICOS).map(async (servico) => {
+      let estado = "erro";
+      let detalhe = "fora do ar";
+      try {
+        const banco = await fetch(`${servico.url}/health/database`).then((r) => r.json());
+        estado = banco.database === "online" ? "ok" : "erro";
+        detalhe = banco.database === "online" ? "online" : "sem banco";
+      } catch {
+        // serviço desligado: mantém "fora do ar"
+      }
+      return el("span", { class: `status ${estado}`, title: `${servico.nome} (porta ${servico.porta}): ${detalhe}` },
+        el("span", { class: "dot" }), el("span", { class: "status-text" }, servico.nome));
+    })
+  );
+  grupo.replaceChildren(...indicadores);
 }
 
 /* ---------- Tempo real (V2): WebSocket de eventos ---------- */
 
-const WS_URL = `${API.replace(/^http/, "ws")}/ws/eventos`;
 const acoesProprias = new Set(); // eventos causados por esta tela: atualiza, mas não repete o aviso
+const canais = {}; // V3: um canal por serviço → { conectado, telas }
 
 function marcarPropria(tipo, id) {
   acoesProprias.add(`${tipo}:${id}`);
@@ -97,11 +117,17 @@ const DESCRICOES = {
   "usuario.atualizado": (d) => `Usuário atualizado: ${d.nome}.`,
 };
 
-function atualizarIndicadorTempoReal(conectado, telas) {
+function atualizarIndicadorTempoReal() {
+  const total = Object.keys(SERVICOS).length;
+  const ativos = Object.values(canais).filter((c) => c.conectado);
+  const telas = Math.max(0, ...ativos.map((c) => c.telas));
   const caixa = $("#status-ws");
-  caixa.className = `status ${conectado ? "ok" : "erro"}`;
-  $(".status-text", caixa).textContent = conectado
-    ? `Ao vivo · ${telas} ${telas === 1 ? "tela" : "telas"}`
+  caixa.className = `status ${ativos.length === total ? "ok" : ativos.length ? "parcial" : "erro"}`;
+  caixa.title = Object.entries(SERVICOS)
+    .map(([chave, s]) => `${s.nome}: ${canais[chave]?.conectado ? "conectado" : "desconectado"}`)
+    .join(" · ");
+  $(".status-text", caixa).textContent = ativos.length
+    ? `Ao vivo ${ativos.length}/${total} · ${telas} ${telas === 1 ? "tela" : "telas"}`
     : "Tempo real desconectado · tentando de novo…";
 }
 
@@ -125,33 +151,35 @@ function recarregarAbaAtual() {
   }
 }
 
-function tratarEvento(evento) {
+function tratarEvento(chave, evento) {
   if (evento.tipo === "conectado" || evento.tipo === "conexoes.alteradas") {
-    atualizarIndicadorTempoReal(true, evento.dados.conexoes);
+    canais[chave] = { conectado: true, telas: evento.dados.conexoes };
+    atualizarIndicadorTempoReal();
     return;
   }
   const descrever = DESCRICOES[evento.tipo];
   if (!descrever) return;
   const texto = descrever(evento.dados);
   registrarNoFeed(evento, texto);
-  const chave = `${evento.tipo}:${evento.dados.id}`;
-  if (acoesProprias.has(chave)) acoesProprias.delete(chave);
+  const identificador = `${evento.tipo}:${evento.dados.id}`;
+  if (acoesProprias.has(identificador)) acoesProprias.delete(identificador);
   else avisar(texto, false, "ao-vivo");
   recarregarAbaAtual();
 }
 
-function conectarEventos(tentativa = 0) {
-  const ws = new WebSocket(WS_URL);
+function conectarEventos(chave, tentativa = 0) {
+  const ws = new WebSocket(`${SERVICOS[chave].url.replace(/^http/, "ws")}/ws/eventos`);
   let aberto = false;
   ws.addEventListener("open", () => {
     aberto = true;
   });
-  ws.addEventListener("message", (mensagem) => tratarEvento(JSON.parse(mensagem.data)));
+  ws.addEventListener("message", (mensagem) => tratarEvento(chave, JSON.parse(mensagem.data)));
   ws.addEventListener("close", () => {
-    atualizarIndicadorTempoReal(false);
-    // Reconexão com espera crescente (1s, 2s, 4s… até 30s) para não sobrecarregar a API.
+    canais[chave] = { conectado: false, telas: 0 };
+    atualizarIndicadorTempoReal();
+    // Reconexão com espera crescente (1s, 2s, 4s… até 30s) para não sobrecarregar o serviço.
     const proxima = aberto ? 0 : tentativa + 1;
-    setTimeout(() => conectarEventos(proxima), Math.min(30000, 1000 * 2 ** proxima));
+    setTimeout(() => conectarEventos(chave, proxima), Math.min(30000, 1000 * 2 ** proxima));
   });
 }
 
@@ -483,7 +511,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   verificarStatus();
   setInterval(verificarStatus, 15000);
-  conectarEventos();
+  for (const chave of Object.keys(SERVICOS)) conectarEventos(chave);
   const abaInicial = location.hash.slice(1);
   abrirAba(["acervo", "usuarios", "emprestimos"].includes(abaInicial) ? abaInicial : "acervo");
 });

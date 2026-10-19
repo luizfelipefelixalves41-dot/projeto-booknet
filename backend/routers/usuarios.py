@@ -8,7 +8,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from backend.dependencies.database import get_db
-from backend.eventos import central
+from backend.eventos import Central
 from backend.models.usuario import TipoUsuario, Usuario
 from backend.schemas.usuario import UsuarioCreate, UsuarioResponse, UsuarioUpdate
 
@@ -67,7 +67,7 @@ def consultar_usuario(usuario_id: UsuarioId, db: Banco) -> Usuario:
 @router.post(
     "", response_model=UsuarioResponse, status_code=status.HTTP_201_CREATED, summary="Cadastrar usuário"
 )
-def criar_usuario(dados: UsuarioCreate, db: Banco, tarefas: BackgroundTasks) -> Usuario:
+def criar_usuario(dados: UsuarioCreate, db: Banco, tarefas: BackgroundTasks, central: Central) -> Usuario:
     _verificar_unicidade(db, dados)
     usuario = Usuario(**dados.model_dump())
     db.add(usuario)
@@ -80,7 +80,7 @@ def criar_usuario(dados: UsuarioCreate, db: Banco, tarefas: BackgroundTasks) -> 
 
 @router.put("/{usuario_id}", response_model=UsuarioResponse, summary="Atualizar usuário")
 def atualizar_usuario(
-    usuario_id: UsuarioId, dados: UsuarioUpdate, db: Banco, tarefas: BackgroundTasks
+    usuario_id: UsuarioId, dados: UsuarioUpdate, db: Banco, tarefas: BackgroundTasks, central: Central
 ) -> Usuario:
     usuario = buscar_usuario(db, usuario_id)
     _verificar_unicidade(db, dados, ignorar_id=usuario_id)

@@ -1,6 +1,6 @@
 """Demonstra a falha 2 da V0: vários usuários pedindo o MESMO exemplar ao mesmo tempo.
 
-Uso, com a API em execução na porta 8000 e os dados de demonstração cadastrados:
+Uso, com os serviços em execução e os dados de demonstração cadastrados:
     .venv\\Scripts\\python.exe scripts\\teste_concorrencia.py
 
 O script cria um exemplar novo, dispara requisições simultâneas de usuários
@@ -15,13 +15,19 @@ import time
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
-API = sys.argv[1] if len(sys.argv) > 1 else "http://127.0.0.1:8000"
+HOST = sys.argv[1] if len(sys.argv) > 1 else "127.0.0.1"
+PORTAS = {"/usuarios": 8002, "/emprestimos": 8003}  # V3: o resto é do Catálogo (8001)
+
+
+def url_do_servico(caminho: str) -> str:
+    porta = next((p for prefixo, p in PORTAS.items() if caminho.startswith(prefixo)), 8001)
+    return f"http://{HOST}:{porta}{caminho}"
 
 
 def chamar(metodo, caminho, dados=None):
     corpo = json.dumps(dados).encode("utf-8") if dados is not None else None
     requisicao = Request(
-        API + caminho, data=corpo, method=metodo, headers={"Content-Type": "application/json"}
+        url_do_servico(caminho), data=corpo, method=metodo, headers={"Content-Type": "application/json"}
     )
     try:
         with urlopen(requisicao, timeout=30) as resposta:

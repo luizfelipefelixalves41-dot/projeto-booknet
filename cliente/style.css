@@ -40,6 +40,8 @@ button { cursor: pointer; }
 .dot { width: 9px; height: 9px; border-radius: 50%; background: #bbb; }
 .status.ok .dot { background: #2e9d6e; box-shadow: 0 0 0 3px #2e9d6e33; }
 .status.erro .dot { background: var(--red); box-shadow: 0 0 0 3px #b4231833; }
+.status.parcial .dot { background: #d68a00; box-shadow: 0 0 0 3px #d68a0033; }
+.status.erro .status-text { color: var(--red); }
 
 /* Painéis */
 main { max-width: 1180px; margin: 0 auto; padding: 28px; }

@@ -179,6 +179,8 @@ class EmprestimosTestes(BancoIsoladoTestCase):
             sessao.execute(insert(Emprestimo).values(
                 usuario_id=outro["id"], exemplar_id=exemplar["id"],
                 data_prevista_devolucao=date.today() + timedelta(days=7), status="ATIVO",
+                usuario_nome=outro["nome"], codigo_tombo=exemplar["codigo_tombo"],
+                livro_id=exemplar["livro_id"], livro_titulo="Redes de Computadores",
             ))
             sessao.commit()
         with self.assertLogs(level="WARNING"):
@@ -261,8 +263,9 @@ class EmprestimosTestes(BancoIsoladoTestCase):
     def test_banco_protege_coerencia_do_emprestimo_sem_pydantic(self):
         usuario, _, (exemplar,) = self.preparar()
         comando = text(
-            "INSERT INTO emprestimos (usuario_id, exemplar_id, data_prevista_devolucao, status, data_devolucao) "
-            "VALUES (:usuario_id, :exemplar_id, :prevista, :status, :devolucao)"
+            "INSERT INTO emprestimos (usuario_id, exemplar_id, data_prevista_devolucao, status, "
+            "data_devolucao, usuario_nome, codigo_tombo, livro_id, livro_titulo) "
+            "VALUES (:usuario_id, :exemplar_id, :prevista, :status, :devolucao, 'U', 'T', 1, 'L')"
         )
         casos = [
             {"status": "PERDIDO"}, {"status": "ATIVO", "devolucao": "2026-01-01"},
@@ -283,8 +286,9 @@ class EmprestimosTestes(BancoIsoladoTestCase):
     def test_banco_aceita_varios_devolvidos_mas_um_unico_ativo_por_exemplar(self):
         usuario, _, (exemplar,) = self.preparar()
         comando = text(
-            "INSERT INTO emprestimos (usuario_id, exemplar_id, data_prevista_devolucao, status, data_devolucao) "
-            "VALUES (:u, :e, '2026-12-01', :s, :d)"
+            "INSERT INTO emprestimos (usuario_id, exemplar_id, data_prevista_devolucao, status, "
+            "data_devolucao, usuario_nome, codigo_tombo, livro_id, livro_titulo) "
+            "VALUES (:u, :e, '2026-12-01', :s, :d, 'U', 'T', 1, 'L')"
         )
         base = {"u": usuario["id"], "e": exemplar["id"]}
         with self.engine.begin() as conexao:
@@ -297,16 +301,16 @@ class EmprestimosTestes(BancoIsoladoTestCase):
             conexao.rollback()
 
     def test_swagger_inclui_usuarios_e_emprestimos(self):
-        caminhos = self.requisicao("GET", "/openapi.json").json()["paths"]
-        for rota, metodos, tag in (
-            ("/usuarios", {"get", "post"}, "Usuários"),
-            ("/usuarios/{usuario_id}", {"get", "put"}, "Usuários"),
-            ("/emprestimos", {"get", "post"}, "Empréstimos"),
-            ("/emprestimos/{emprestimo_id}", {"get"}, "Empréstimos"),
-            ("/emprestimos/{emprestimo_id}/devolucao", {"post"}, "Empréstimos"),
-            ("/exemplares/{exemplar_id}", {"get"}, "Catálogo"),
+        for servico, rota, metodos, tag in (
+            ("usuarios", "/usuarios", {"get", "post"}, "Usuários"),
+            ("usuarios", "/usuarios/{usuario_id}", {"get", "put"}, "Usuários"),
+            ("emprestimos", "/emprestimos", {"get", "post"}, "Empréstimos"),
+            ("emprestimos", "/emprestimos/{emprestimo_id}", {"get"}, "Empréstimos"),
+            ("emprestimos", "/emprestimos/{emprestimo_id}/devolucao", {"post"}, "Empréstimos"),
+            ("catalogo", "/exemplares/{exemplar_id}", {"get"}, "Catálogo"),
         ):
             with self.subTest(rota=rota):
+                caminhos = self.requisicao("GET", "/openapi.json", servico=servico).json()["paths"]
                 self.assertEqual(set(caminhos[rota]), metodos)
                 for metodo in metodos:
                     self.assertIn(tag, caminhos[rota][metodo]["tags"])
