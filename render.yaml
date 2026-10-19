@@ -1,0 +1,84 @@
+# BookNet na nuvem (Render, plano gratuito).
+#
+# O Render lê este arquivo (um "Blueprint") e cria os quatro componentes:
+# três serviços Docker, cada um em uma máquina própria, e o Cliente Web estático.
+# O banco continua sendo o PostgreSQL no Neon.
+#
+# Segredos NÃO ficam aqui: DATABASE_URL é pedida no painel do Render
+# (sync: false) e o token interno é gerado pelo próprio Render.
+#
+# Se o Render der a um serviço um endereço diferente do previsto abaixo,
+# atualize BOOKNET_URL_* e BOOKNET_ORIGENS_EXTRAS aqui e o cliente/config.js.
+
+envVarGroups:
+  - name: booknet-comum
+    envVars:
+      # Mesmo segredo para os três serviços: protege as rotas /interno do Catálogo.
+      - key: BOOKNET_TOKEN_INTERNO
+        generateValue: true
+      # Endereço público do Cliente Web, liberado no CORS e no WebSocket.
+      - key: BOOKNET_ORIGENS_EXTRAS
+        value: https://booknet-luizfelipe.onrender.com
+
+services:
+  - type: web
+    name: booknet-luizfelipe-catalogo
+    runtime: docker
+    plan: free
+    region: virginia
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    dockerCommand: python -m uvicorn backend.servicos.catalogo:app --host 0.0.0.0 --port 8001
+    healthCheckPath: /health
+    envVars:
+      - key: PORT
+        value: "8001"
+      - key: DATABASE_URL
+        sync: false
+      - fromGroup: booknet-comum
+
+  - type: web
+    name: booknet-luizfelipe-usuarios
+    runtime: docker
+    plan: free
+    region: virginia
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    dockerCommand: python -m uvicorn backend.servicos.usuarios:app --host 0.0.0.0 --port 8002
+    healthCheckPath: /health
+    envVars:
+      - key: PORT
+        value: "8002"
+      - key: DATABASE_URL
+        sync: false
+      - fromGroup: booknet-comum
+
+  - type: web
+    name: booknet-luizfelipe-emprestimos
+    runtime: docker
+    plan: free
+    region: virginia
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    dockerCommand: python -m uvicorn backend.servicos.emprestimos:app --host 0.0.0.0 --port 8003
+    healthCheckPath: /health
+    envVars:
+      - key: PORT
+        value: "8003"
+      - key: DATABASE_URL
+        sync: false
+      - fromGroup: booknet-comum
+      # Na nuvem, os outros serviços são chamados pelo endereço público (HTTPS).
+      - key: BOOKNET_URL_CATALOGO
+        value: https://booknet-luizfelipe-catalogo.onrender.com
+      - key: BOOKNET_URL_USUARIOS
+        value: https://booknet-luizfelipe-usuarios.onrender.com
+      # Um serviço gratuito "dormindo" leva até ~1 minuto para acordar.
+      - key: BOOKNET_TIMEOUT_SERVICOS
+        value: "60"
+
+  - type: web
+    name: booknet-luizfelipe
+    runtime: static
+    buildCommand: echo "Cliente Web estático, sem etapa de build."
+    staticPublishPath: ./cliente

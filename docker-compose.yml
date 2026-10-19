@@ -17,6 +17,8 @@ x-servico: &servico
   build: .
   image: booknet-servicos:v4
   env_file: .env # DATABASE_URL e BOOKNET_TOKEN_INTERNO (o .env não entra na imagem)
+  environment: &ambiente
+    BOOKNET_ORIGENS_EXTRAS: ${BOOKNET_ORIGENS_EXTRAS:-} # origens além de localhost e da rede local
   depends_on:
     migracao:
       condition: service_completed_successfully
@@ -44,6 +46,7 @@ services:
     command: ["python", "-m", "uvicorn", "backend.servicos.emprestimos:app", "--host", "0.0.0.0", "--port", "8003"]
     ports: ["8003:8003"]
     environment:
+      <<: *ambiente
       BOOKNET_URL_CATALOGO: http://catalogo:8001
       BOOKNET_URL_USUARIOS: http://usuarios:8002
 

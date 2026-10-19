@@ -13,7 +13,7 @@ from backend import database
 from backend.errors import configurar_tratamento_erros
 from backend.eventos import CentralDeEventos
 from backend.eventos import router as eventos_router
-from backend.origens import ORIGENS_LOCAIS, REGEX_REDE_LOCAL
+from backend.origens import ORIGENS_PERMITIDAS, REGEX_REDE_LOCAL
 
 VERSAO = "V3"
 
@@ -35,7 +35,7 @@ def criar_servico(
     configurar_tratamento_erros(app)
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=ORIGENS_LOCAIS,
+        allow_origins=ORIGENS_PERMITIDAS,
         allow_origin_regex=REGEX_REDE_LOCAL,
         allow_credentials=False,
         allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],

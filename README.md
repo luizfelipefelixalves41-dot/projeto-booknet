@@ -357,9 +357,61 @@ Acesse **http://localhost:8080**. As portas 8001 a 8003 e 8080 ficam abertas tam
 | Falha 1 | Com `docker compose stop emprestimos`, o indicador ficou vermelho e o Acervo continuou funcionando no navegador. |
 | Segurança da imagem | Usuário `booknet` (não `root`); `/app` contém só `alembic.ini`, `backend`, `migrations` e `requirements.txt`, sem `.env`. |
 
+## BookNet na nuvem (Render)
+
+Para usar o BookNet de qualquer lugar (faculdade, celular, casa de um colega) sem depender de um computador ligado, o sistema roda no **Render** (render.com), no plano gratuito, sem cartão de crédito. O banco continua no Neon.
+
+```text
+        Qualquer navegador ──HTTPS──▶ booknet-luizfelipe.onrender.com (Cliente Web)
+                                        │            │              │
+                                        ▼            ▼              ▼
+                                   Catálogo      Usuários      Empréstimos   ← três máquinas no Render
+                                        ▲            ▲              │
+                                        └────── HTTPS ──────────────┘
+                                                     ▼
+                                           PostgreSQL no Neon
+```
+
+| Componente | Endereço | Tipo no Render |
+| --- | --- | --- |
+| Cliente Web | https://booknet-luizfelipe.onrender.com | Static Site (gratuito) |
+| Serviço de Catálogo | https://booknet-luizfelipe-catalogo.onrender.com | Web Service Docker (gratuito) |
+| Serviço de Usuários | https://booknet-luizfelipe-usuarios.onrender.com | Web Service Docker (gratuito) |
+| Serviço de Empréstimos | https://booknet-luizfelipe-emprestimos.onrender.com | Web Service Docker (gratuito) |
+
+Tudo é descrito no arquivo [`render.yaml`](render.yaml) (um *Blueprint*). Os serviços usam o mesmo `Dockerfile` da V4. Cada um roda em uma máquina diferente, e o Empréstimos chama os outros pelo endereço público, com HTTPS e o token interno. O cliente detecta que está na nuvem e usa os endereços de [`cliente/config.js`](cliente/config.js).
+
+### Limitação do plano gratuito
+
+Um serviço sem acessos por **15 minutos "dorme"**. O primeiro acesso depois disso leva **cerca de 1 minuto** enquanto ele acorda. O Cliente Web trata isso:
+
+- mostra a faixa **"Acordando os serviços na nuvem…"** e o indicador do serviço em vermelho;
+- verifica de novo a cada 5 segundos e, quando todos estão no ar, avisa e carrega os dados sozinho.
+
+Na nuvem, o Empréstimos espera até 60 segundos por outro serviço (`BOOKNET_TIMEOUT_SERVICOS`), tempo suficiente para ele acordar. **Antes de uma apresentação, abra o site uns 2 minutos antes.**
+
+O plano gratuito oferece 750 horas de uso por mês, somando todos os serviços. Como eles dormem quando ninguém usa, isso sobra para o trabalho. Não use serviços para mantê-los acordados 24 horas por dia.
+
+Esse comportamento foi simulado localmente antes da publicação: com o cliente servido num domínio "de internet" e o Catálogo parado, a faixa apareceu; ao religar o Catálogo, a página se recuperou sozinha e um empréstimo completo funcionou.
+
+### Como publicar (uma vez só)
+
+1. Acesse https://render.com e clique em **Get Started**. Entre com **GitHub** (*Sign up with GitHub*) usando a conta dona do repositório.
+2. No painel do Render, clique em **New +** → **Blueprint**.
+3. Conecte o GitHub quando for pedido e escolha o repositório **projeto-booknet**. O Render encontra o `render.yaml` sozinho.
+4. Dê um nome ao Blueprint (ex.: `booknet`). Ele mostra os quatro componentes e pede o valor de **`DATABASE_URL`** para cada serviço. Cole a **connection string do Neon**, a mesma do seu `.env`, nos três campos.
+5. Clique em **Apply** (ou **Deploy Blueprint**) e aguarde. A primeira publicação leva de 5 a 10 minutos, porque o Render constrói a imagem Docker.
+6. Quando os quatro estiverem **Live** (verde), abra https://booknet-luizfelipe.onrender.com.
+
+**Se algum endereço sair diferente** (por exemplo `booknet-luizfelipe-catalogo-ab12.onrender.com`, porque o nome já existia), troque-o em `render.yaml` (`BOOKNET_URL_*` e `BOOKNET_ORIGENS_EXTRAS`) e em `cliente/config.js`, e envie ao GitHub. O Render publica de novo sozinho.
+
+### Atualizações
+
+A cada `git push` na branch `main`, o Render reconstrói e publica a nova versão automaticamente. Se a mudança incluir uma nova migration, aplique-a antes no Neon, com `alembic upgrade head` ou com `docker compose up`, que roda a migração sozinho.
+
 ## Como executar
 
-Há dois jeitos de rodar o BookNet. Os dois usam o mesmo `.env` e o mesmo banco no Neon.
+Além da versão na nuvem (seção anterior), há dois jeitos de rodar o BookNet no seu computador. Os dois usam o mesmo `.env` e o mesmo banco no Neon.
 
 | | **Com Docker (V4, recomendado)** | **Com Python (V3)** |
 | --- | --- | --- |
@@ -469,7 +521,7 @@ Os três aceitam o IP do Computador A como argumento (ex.: `scripts\monitor_even
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
 
-**79 testes passando.** Eles usam SQLite em memória e não acessam o `.env` nem o Neon, porque qualquer tentativa de conexão PostgreSQL é bloqueada. Os três serviços rodam dentro do processo de teste. As chamadas entre eles usam o cliente `httpx` real, com um transporte simulado que entrega cada pedido ao serviço de destino. Isso permite simular **serviço fora do ar** e **timeout** de forma controlada.
+**80 testes passando.** Eles usam SQLite em memória e não acessam o `.env` nem o Neon, porque qualquer tentativa de conexão PostgreSQL é bloqueada. Os três serviços rodam dentro do processo de teste. As chamadas entre eles usam o cliente `httpx` real, com um transporte simulado que entrega cada pedido ao serviço de destino. Isso permite simular **serviço fora do ar** e **timeout** de forma controlada.
 
 | Arquivo | Cobertura |
 | --- | --- |
@@ -497,6 +549,7 @@ booknet/
 ├── Dockerfile                  # V4: imagem dos três serviços
 ├── docker-compose.yml          # V4: o sistema inteiro em contêineres
 ├── .dockerignore               # V4: o que nunca entra na imagem (.env!)
+├── render.yaml                 # nuvem: os quatro componentes no Render
 ├── backend/
 │   ├── servicos/               # V3: os três serviços (um processo cada)
 │   │   ├── base.py             # estrutura comum: CORS, erros, /health, /ws/eventos
@@ -516,7 +569,7 @@ booknet/
 ├── migrations/versions/        # 0001 catálogo · 0002 usuários e empréstimos · 0003 cópia de dados
 ├── tests/                      # apoio.py e os testes de catálogo, circulação, eventos e serviços
 ├── scripts/                    # iniciar_servicos, popular_dados, teste_concorrencia, monitor_eventos
-├── cliente/                    # Cliente Web (V1–V3) e seu Dockerfile com nginx (V4)
+├── cliente/                    # Cliente Web (V1–V3), Dockerfile com nginx (V4) e config.js da nuvem
 ├── servico-catalogo/           # README do Serviço de Catálogo
 ├── servico-usuarios/           # README do Serviço de Usuários
 ├── servico-emprestimos/        # README do Serviço de Empréstimos
@@ -575,6 +628,7 @@ Cada versão concluída está marcada com uma *tag* no Git (`v1`, `v2`, `v3`, `v
 | unittest | Testes automatizados. |
 | Docker + Docker Compose | Contêineres dos serviços e do cliente; sistema inteiro com um comando (V4). |
 | nginx | Servidor web do Cliente Web no contêiner (V4). |
+| Render | Hospedagem gratuita dos serviços e do Cliente Web na nuvem. |
 | Git / GitHub | Versionamento e hospedagem. |
 
 ## Repositório

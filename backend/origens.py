@@ -1,5 +1,6 @@
 """Origens do navegador autorizadas a usar a API (CORS no HTTP e verificação no WebSocket)."""
 
+import os
 import re
 
 ORIGENS_LOCAIS = [
@@ -8,6 +9,15 @@ ORIGENS_LOCAIS = [
     "http://localhost:5500",
     "http://127.0.0.1:5500",
 ]
+
+# Na nuvem: endereço público do Cliente Web, ex.: https://booknet-luizfelipe.onrender.com.
+# Vários endereços podem ser separados por vírgula.
+ORIGENS_EXTRAS = [
+    origem.strip().rstrip("/")
+    for origem in os.getenv("BOOKNET_ORIGENS_EXTRAS", "").split(",")
+    if origem.strip()
+]
+ORIGENS_PERMITIDAS = ORIGENS_LOCAIS + ORIGENS_EXTRAS
 
 # Demonstração em duas máquinas: cliente servido em outro PC da rede local
 # (faixas privadas 10.x, 172.16-31.x e 192.168.x), nas mesmas portas.
@@ -25,4 +35,4 @@ def origem_permitida(origem: str | None) -> bool:
     """
     if origem is None:
         return True
-    return origem in ORIGENS_LOCAIS or re.fullmatch(REGEX_REDE_LOCAL, origem) is not None
+    return origem in ORIGENS_PERMITIDAS or re.fullmatch(REGEX_REDE_LOCAL, origem) is not None

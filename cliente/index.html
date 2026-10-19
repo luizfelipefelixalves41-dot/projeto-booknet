@@ -8,6 +8,7 @@
   <title>BookNet · Biblioteca</title>
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="style.css">
+  <script src="config.js" defer></script>
   <script src="app.js" defer></script>
 </head>
 <body>
@@ -30,6 +31,11 @@
       </div>
     </div>
   </header>
+
+  <div class="aviso-nuvem" id="aviso-nuvem" role="status" hidden>
+    <span class="spinner" aria-hidden="true"></span>
+    Acordando os serviços na nuvem… No plano gratuito, serviços sem uso dormem e levam até 1 minuto para voltar. A página continua sozinha.
+  </div>
 
   <main>
     <!-- ACERVO -->

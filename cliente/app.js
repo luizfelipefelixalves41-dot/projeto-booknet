@@ -1,14 +1,28 @@
 "use strict";
 
 // Cliente Web do BookNet: conversa com os serviços por HTTP/REST (JSON) e WebSocket.
-// V3: cada responsabilidade é um serviço separado, na mesma máquina que serve o
-// cliente. Abrindo http://IP_DO_SERVIDOR:8080 em outro computador, o navegador
-// fala com IP_DO_SERVIDOR:8001, :8002 e :8003.
+// V3: cada responsabilidade é um serviço separado.
+// - Execução local ou na rede do laboratório: os serviços ficam na mesma máquina
+//   que serve o cliente, nas portas 8001, 8002 e 8003.
+// - Nuvem: cada serviço tem um endereço público próprio, definido em config.js.
 const HOST = location.hostname || "127.0.0.1";
+const EXECUCAO_LOCAL =
+  location.protocol === "file:" ||
+  HOST === "localhost" ||
+  HOST === "[::1]" ||
+  /^(127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(HOST);
+const NUVEM = window.BOOKNET_NUVEM || {};
+
+function servico(chave, nome, porta) {
+  const url = EXECUCAO_LOCAL ? `http://${HOST}:${porta}` : NUVEM[chave];
+  const onde = EXECUCAO_LOCAL ? `porta ${porta}` : new URL(url).hostname;
+  return { nome, url, porta, onde };
+}
+
 const SERVICOS = {
-  catalogo: { nome: "Catálogo", url: `http://${HOST}:8001`, porta: 8001 },
-  usuarios: { nome: "Usuários", url: `http://${HOST}:8002`, porta: 8002 },
-  emprestimos: { nome: "Empréstimos", url: `http://${HOST}:8003`, porta: 8003 },
+  catalogo: servico("catalogo", "Catálogo", 8001),
+  usuarios: servico("usuarios", "Usuários", 8002),
+  emprestimos: servico("emprestimos", "Empréstimos", 8003),
 };
 
 /** Cada rota pertence a um serviço, como no desenho da arquitetura. */
@@ -62,7 +76,11 @@ async function api(metodo, caminho, dados) {
       body: dados ? JSON.stringify(dados) : undefined,
     });
   } catch {
-    throw new Error(`Serviço de ${servico.nome} fora do ar (porta ${servico.porta}).`);
+    throw new Error(
+      EXECUCAO_LOCAL
+        ? `Serviço de ${servico.nome} fora do ar (porta ${servico.porta}).`
+        : `Serviço de ${servico.nome} indisponível. Na nuvem gratuita ele pode estar acordando: aguarde até 1 minuto.`
+    );
   }
   const corpo = await resposta.json().catch(() => null);
   if (!resposta.ok) throw new Error(mensagemDeErro(corpo, resposta.status));
@@ -78,9 +96,11 @@ function vazio(texto) {
 
 /* ---------- Estado dos serviços ---------- */
 
+let acordando = false;
+
 async function verificarStatus() {
   const grupo = $("#status-servicos");
-  const indicadores = await Promise.all(
+  const resultados = await Promise.all(
     Object.values(SERVICOS).map(async (servico) => {
       let estado = "erro";
       let detalhe = "fora do ar";
@@ -91,11 +111,29 @@ async function verificarStatus() {
       } catch {
         // serviço desligado: mantém "fora do ar"
       }
-      return el("span", { class: `status ${estado}`, title: `${servico.nome} (porta ${servico.porta}): ${detalhe}` },
-        el("span", { class: "dot" }), el("span", { class: "status-text" }, servico.nome));
+      return {
+        ok: estado === "ok",
+        indicador: el("span", { class: `status ${estado}`, title: `${servico.nome} (${servico.onde}): ${detalhe}` },
+          el("span", { class: "dot" }), el("span", { class: "status-text" }, servico.nome)),
+      };
     })
   );
-  grupo.replaceChildren(...indicadores);
+  grupo.replaceChildren(...resultados.map((r) => r.indicador));
+
+  // Na nuvem gratuita, serviços sem uso "dormem" e levam até 1 minuto para acordar.
+  // Enquanto isso, a página avisa e verifica de novo a cada 5 segundos.
+  const todosOk = resultados.every((r) => r.ok);
+  const aviso = $("#aviso-nuvem");
+  if (!EXECUCAO_LOCAL && !todosOk) {
+    acordando = true;
+    aviso.hidden = false;
+  } else if (acordando && todosOk) {
+    acordando = false;
+    aviso.hidden = true;
+    avisar("Todos os serviços estão no ar.");
+    recarregarAbaAtual();
+  }
+  setTimeout(verificarStatus, todosOk ? 15000 : 5000);
 }
 
 /* ---------- Tempo real (V2): WebSocket de eventos ---------- */
@@ -510,7 +548,6 @@ document.addEventListener("DOMContentLoaded", () => {
   $("#form-emprestimo").addEventListener("submit", criarEmprestimo);
 
   verificarStatus();
-  setInterval(verificarStatus, 15000);
   for (const chave of Object.keys(SERVICOS)) conectarEventos(chave);
   const abaInicial = location.hash.slice(1);
   abrirAba(["acervo", "usuarios", "emprestimos"].includes(abaInicial) ? abaInicial : "acervo");

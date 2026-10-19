@@ -5,7 +5,10 @@ Execução: .venv\\Scripts\\python.exe -m unittest discover -s tests -v
 
 from __future__ import annotations
 
+import importlib
+import os
 import unittest
+from unittest.mock import patch
 
 import httpx
 
@@ -54,6 +57,20 @@ class SeparacaoTestes(BancoIsoladoTestCase):
         self.assertEqual(
             self.requisicao("POST", "/interno/exemplares/99999/liberacao", headers=token).status_code, 404
         )
+
+
+    def test_origens_extras_da_nuvem_vem_do_ambiente(self):
+        """Na nuvem, o endereço público do Cliente Web chega por BOOKNET_ORIGENS_EXTRAS."""
+        from backend import origens
+
+        nuvem = "https://booknet-luizfelipe.onrender.com"
+        with patch.dict(os.environ, {"BOOKNET_ORIGENS_EXTRAS": f" {nuvem}/ , https://outro.exemplo.com"}):
+            importlib.reload(origens)
+            self.addCleanup(importlib.reload, origens)
+            self.assertEqual(origens.ORIGENS_EXTRAS, [nuvem, "https://outro.exemplo.com"])
+            self.assertTrue(origens.origem_permitida(nuvem))
+            self.assertFalse(origens.origem_permitida("https://booknet-falso.onrender.com"))
+            self.assertTrue(origens.origem_permitida("http://localhost:8080"))
 
 
 class ComunicacaoEntreServicosTestes(BancoIsoladoTestCase):
