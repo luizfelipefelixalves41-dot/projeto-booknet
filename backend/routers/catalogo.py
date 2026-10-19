@@ -15,6 +15,7 @@ from backend.schemas.livro import LivroCreate, LivroResponse, LivroUpdate
 
 
 router = APIRouter(prefix="/livros", tags=["Catálogo"])
+router_exemplares = APIRouter(prefix="/exemplares", tags=["Catálogo"])
 logger = logging.getLogger("booknet.catalogo")
 Banco = Annotated[Session, Depends(get_db, scope="function")]
 LivroId = Annotated[int, Path(gt=0)]
@@ -97,4 +98,14 @@ def criar_exemplar(livro_id: LivroId, dados: ExemplarCreate, db: Banco) -> Exemp
     db.commit()
     db.refresh(exemplar)
     logger.info("Exemplar cadastrado com sucesso. id=%s", exemplar.id)
+    return exemplar
+
+
+@router_exemplares.get(
+    "/{exemplar_id}", response_model=ExemplarResponse, summary="Consultar disponibilidade do exemplar"
+)
+def consultar_exemplar(exemplar_id: Annotated[int, Path(gt=0)], db: Banco) -> Exemplar:
+    exemplar = db.get(Exemplar, exemplar_id)
+    if exemplar is None:
+        raise HTTPException(status_code=404, detail="Exemplar não encontrado.")
     return exemplar

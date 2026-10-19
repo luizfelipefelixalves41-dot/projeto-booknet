@@ -15,7 +15,16 @@ from sqlalchemy.exc import (
 )
 
 
-logger = logging.getLogger("booknet.catalogo")
+logger = logging.getLogger("booknet.banco")
+
+# Nomes de constraints conhecidos; o PostgreSQL informa o nome sem expor a consulta.
+_MENSAGENS_UNICIDADE = {
+    "uq_livros_isbn": "ISBN já cadastrado.",
+    "uq_exemplares_codigo_tombo": "Código de tombo já cadastrado.",
+    "uq_usuarios_email": "E-mail já cadastrado.",
+    "uq_usuarios_matricula": "Matrícula já cadastrada.",
+    "uq_emprestimos_exemplar_ativo": "Exemplar não está disponível.",
+}
 
 
 async def tratar_erro_banco(request: Request, exc: SQLAlchemyError) -> JSONResponse:
@@ -27,23 +36,28 @@ async def tratar_erro_banco(request: Request, exc: SQLAlchemyError) -> JSONRespo
             sqlite3.SQLITE_CONSTRAINT_UNIQUE,
             sqlite3.SQLITE_CONSTRAINT_PRIMARYKEY,
         }:
-            logger.warning("Conflito de unicidade no catálogo.")
+            constraint = getattr(getattr(exc.orig, "diag", None), "constraint_name", None)
+            logger.warning("Conflito de unicidade no banco.")
             return JSONResponse(
                 status_code=409,
-                content={"detail": "ISBN ou código de tombo já cadastrado."},
+                content={
+                    "detail": _MENSAGENS_UNICIDADE.get(
+                        constraint, "Já existe um registro com esses dados."
+                    )
+                },
             )
-        logger.warning("Dados rejeitados pelas regras de integridade do catálogo.")
+        logger.warning("Dados rejeitados pelas regras de integridade do banco.")
         return JSONResponse(
-            status_code=400, content={"detail": "Dados incompatíveis com as regras do catálogo."}
+            status_code=400, content={"detail": "Dados incompatíveis com as regras do sistema."}
         )
 
     if isinstance(exc, (OperationalError, InterfaceError, DisconnectionError, TimeoutError)):
-        logger.warning("Banco de dados indisponível para atender ao catálogo.")
+        logger.warning("Banco de dados indisponível.")
         return JSONResponse(
             status_code=503, content={"detail": "Serviço de banco de dados indisponível."}
         )
 
-    logger.error("Falha inesperada na operação de banco do catálogo.")
+    logger.error("Falha inesperada na operação de banco.")
     return JSONResponse(
         status_code=500, content={"detail": "Não foi possível concluir a operação."}
     )
