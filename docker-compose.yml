@@ -1,0 +1,54 @@
+# V4: o BookNet inteiro em contêineres.
+#
+#   docker compose up --build        sobe tudo (Ctrl+C encerra)
+#   docker compose up --build -d     sobe em segundo plano
+#   docker compose stop emprestimos  derruba um serviço (falha 1)
+#   docker compose down              remove os contêineres
+#
+# Cliente Web: http://localhost:8080
+#
+# Dentro da rede do compose, cada contêiner é encontrado pelo NOME do serviço:
+# o Serviço de Empréstimos chama http://catalogo:8001 e http://usuarios:8002,
+# e não mais 127.0.0.1. O banco continua sendo o PostgreSQL no Neon.
+
+name: booknet
+
+x-servico: &servico
+  build: .
+  image: booknet-servicos:v4
+  env_file: .env # DATABASE_URL e BOOKNET_TOKEN_INTERNO (o .env não entra na imagem)
+  depends_on:
+    migracao:
+      condition: service_completed_successfully
+
+services:
+  # Roda uma vez, antes dos serviços: aplica as migrations pendentes e termina.
+  migracao:
+    build: .
+    image: booknet-servicos:v4
+    env_file: .env
+    command: ["python", "-m", "alembic", "upgrade", "head"]
+
+  catalogo:
+    <<: *servico
+    command: ["python", "-m", "uvicorn", "backend.servicos.catalogo:app", "--host", "0.0.0.0", "--port", "8001"]
+    ports: ["8001:8001"]
+
+  usuarios:
+    <<: *servico
+    command: ["python", "-m", "uvicorn", "backend.servicos.usuarios:app", "--host", "0.0.0.0", "--port", "8002"]
+    ports: ["8002:8002"]
+
+  emprestimos:
+    <<: *servico
+    command: ["python", "-m", "uvicorn", "backend.servicos.emprestimos:app", "--host", "0.0.0.0", "--port", "8003"]
+    ports: ["8003:8003"]
+    environment:
+      BOOKNET_URL_CATALOGO: http://catalogo:8001
+      BOOKNET_URL_USUARIOS: http://usuarios:8002
+
+  cliente:
+    build: ./cliente
+    image: booknet-cliente:v4
+    ports: ["8080:80"]
+    depends_on: [catalogo, usuarios, emprestimos]

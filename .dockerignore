@@ -1,0 +1,27 @@
+# Nada disto entra na imagem. O .env NUNCA é copiado: as credenciais chegam ao
+# contêiner só em tempo de execução, pelo env_file do docker-compose.yml.
+.env
+.env.*
+.git
+.gitignore
+.venv
+venv
+**/__pycache__
+**/*.pyc
+.pytest_cache
+.vscode
+.idea
+*.log
+*.db
+*.sqlite
+*.sqlite3
+
+# Não são necessários para executar os serviços.
+tests
+scripts
+docs
+dashboard
+cliente
+banco
+servico-*
+README.md

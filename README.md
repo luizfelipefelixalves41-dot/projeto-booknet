@@ -2,9 +2,9 @@
 
 **Sistema Distribuído de Gerenciamento de Biblioteca Universitária**  
 Disciplina: Sistemas Distribuídos  
-Etapa atual: **V3 — Serviços separados concluída**
+Etapa atual: **V4 — Docker concluída**
 
-Entregas concluídas: **V0 (Ideia e arquitetura)**, **V1 (Cliente-servidor)**, **V2 (Sockets / mensagens)** e **V3 (Serviços separados)**
+Entregas concluídas: **V0 (Ideia e arquitetura)**, **V1 (Cliente-servidor)**, **V2 (Sockets / mensagens)**, **V3 (Serviços separados)** e **V4 (Docker)**
 
 ## Integrantes
 
@@ -20,8 +20,9 @@ O BookNet é um projeto acadêmico da disciplina de Sistemas Distribuídos volta
 - **V1** entregou a primeira implementação cliente-servidor: uma API FastAPI com catálogo, usuários, empréstimos e devoluções, persistida em PostgreSQL no Neon, e um **Cliente Web funcional**. A falha de concorrência da V0 (dois usuários disputando o mesmo exemplar) foi resolvida no banco.
 - **V2** acrescentou **mensagens em tempo real por WebSocket**: quando alguém empresta ou devolve um livro, todas as telas abertas são avisadas na hora.
 - **V3** transformou a aplicação única nos **três serviços independentes do desenho da V0**: Catálogo, Usuários e Empréstimos, cada um em seu processo e porta. O Serviço de Empréstimos consulta os outros dois **pela rede**, com tempo limite e compensação em caso de falha.
+- **V4** empacotou cada parte em um **contêiner Docker**: um único `docker compose up` sobe a migração, os três serviços e o Cliente Web em qualquer computador com Docker, sem instalar Python.
 
-Docker, recuperação de falhas e orquestração continuam planejados (V4 a V6).
+Recuperação de falhas e orquestração continuam planejadas (V5 e V6).
 
 ## Problema
 
@@ -293,9 +294,82 @@ O iniciador permite subir o sistema sem algum serviço (`--sem`):
 | **Catálogo fora do ar** (falha 3) | Um pedido de empréstimo recebe na hora `503 Serviço de Catálogo indisponível no momento.`, sem travar. A lista de empréstimos e o Serviço de Usuários continuam respondendo. |
 | **Catálogo lento** (falha 3) | Depois de 3 segundos, `504 O Serviço de Catálogo não respondeu a tempo.` (coberto pelos testes automatizados). |
 
+## V4: Docker
+
+Até a V3, para rodar o BookNet era preciso ter o Python certo instalado, criar o `.venv`, instalar as dependências e abrir quatro programas. Funcionava "na minha máquina", mas cada computador novo era uma nova instalação.
+
+Na V4, cada parte do sistema vira um **contêiner**: um pacote isolado que leva junto o próprio Python, as bibliotecas e o código. Em qualquer computador com Docker, **um único comando** sobe o sistema inteiro, sempre do mesmo jeito.
+
+```text
+                                 docker compose up
+                                        │
+       ┌───────────────┬───────────────┼────────────────┬────────────────┐
+       ▼               ▼               ▼                ▼                ▼
+   migracao        catalogo        usuarios        emprestimos        cliente
+ (alembic, roda    :8001           :8002           :8003              nginx :8080
+  e termina)           ▲               ▲               │
+                       └── http://catalogo:8001 ───────┤   rede interna do compose:
+                                   http://usuarios:8002┘   cada contêiner é achado pelo nome
+       │               │               │                │
+       └───────────────┴───────────────┴────────────────┘──▶ PostgreSQL no Neon (internet)
+```
+
+| Arquivo | Para que serve |
+| --- | --- |
+| `Dockerfile` | Receita da imagem dos serviços: parte de `python:3.13-slim`, instala o `requirements.txt` e copia `backend/` e `migrations/`. **A mesma imagem** vira os três serviços; só muda o comando de cada contêiner. |
+| `cliente/Dockerfile` | Imagem do Cliente Web servido pelo **nginx**, um servidor web leve para arquivos estáticos. |
+| `docker-compose.yml` | Descreve o sistema inteiro: quais contêineres existem, as portas, a ordem de subida e os endereços entre eles. |
+| `.dockerignore` | Lista o que **nunca** entra numa imagem, a começar pelo `.env`. |
+
+### Decisões de projeto
+
+- **Uma imagem, três serviços.** Catálogo, Usuários e Empréstimos usam o mesmo código-base, então compartilham a imagem `booknet-servicos:v4` (274 MB). O compose escolhe qual `uvicorn backend.servicos.X:app` cada contêiner executa.
+- **Endereços pelo nome do serviço.** Dentro do compose, o Empréstimos chama `http://catalogo:8001` e `http://usuarios:8002`. O Docker tem um DNS interno que resolve esses nomes. Por isso os endereços vêm de variáveis de ambiente (`BOOKNET_URL_*`) desde a V3: o código não muda, só a configuração.
+- **Migração antes de tudo.** O contêiner `migracao` roda `alembic upgrade head` e termina. Os serviços só sobem depois que ele termina **com sucesso** (`service_completed_successfully`). Se o banco estiver com estrutura antiga, ela é atualizada automaticamente; se já estiver em dia, nada muda.
+- **Segredos fora da imagem.** O `.env` está no `.dockerignore` e só chega aos contêineres em tempo de execução, pelo `env_file`. Verificado: a imagem não contém o arquivo. Uma imagem pode ser compartilhada sem expor a senha do banco.
+- **Sem administrador dentro do contêiner.** Os serviços rodam como o usuário `booknet` (uid 10001), não como `root`. Se alguém explorar uma falha no serviço, terá menos poder dentro do contêiner.
+- **Camadas em cache.** O `Dockerfile` instala as dependências **antes** de copiar o código. Mudar só o código não reinstala as bibliotecas, então a reconstrução leva segundos.
+
+### Como usar
+
+Pré-requisitos: **Docker Desktop** instalado e com "Engine running", e o arquivo `.env` na raiz `booknet/` (veja "Como executar"). Não é preciso ter Python instalado.
+
+```powershell
+docker compose up --build          # sobe tudo e mostra os logs (Ctrl+C encerra)
+docker compose up --build -d       # sobe em segundo plano
+docker compose ps                  # lista os contêineres e seus estados
+docker compose logs -f emprestimos # acompanha os logs de um serviço
+docker compose stop emprestimos    # derruba um serviço (falha 1)
+docker compose start emprestimos   # religa
+docker compose down                # remove os contêineres (os dados ficam no Neon)
+```
+
+Acesse **http://localhost:8080**. As portas 8001 a 8003 e 8080 ficam abertas também para a rede, então a demonstração em duas máquinas funciona da mesma forma: o Computador B abre `http://IP_DO_COMPUTADOR_A:8080`.
+
+### Verificado nesta entrega
+
+| Verificação | Resultado |
+| --- | --- |
+| `docker compose up --build -d` | `migracao` terminou com código 0; `catalogo`, `usuarios`, `emprestimos` e `cliente` em execução. |
+| Saúde dos serviços | Os três responderam `banco online` (Neon) a partir dos contêineres. |
+| Rede interna | De dentro do contêiner `emprestimos`, `http://catalogo:8001` e `http://usuarios:8002` responderam. |
+| Concorrência (falha 2) | `teste_concorrencia.py` contra os contêineres: 2 execuções, sempre 1 aprovado. |
+| Falha 1 | Com `docker compose stop emprestimos`, o indicador ficou vermelho e o Acervo continuou funcionando no navegador. |
+| Segurança da imagem | Usuário `booknet` (não `root`); `/app` contém só `alembic.ini`, `backend`, `migrations` e `requirements.txt`, sem `.env`. |
+
 ## Como executar
 
-Execute os comandos **na raiz `booknet/`**, no PowerShell.
+Há dois jeitos de rodar o BookNet. Os dois usam o mesmo `.env` e o mesmo banco no Neon.
+
+| | **Com Docker (V4, recomendado)** | **Com Python (V3)** |
+| --- | --- | --- |
+| Precisa instalar | Docker Desktop | Python 3.13 e as dependências |
+| Comando | `docker compose up --build` | `.\.venv\Scripts\python.exe scripts\iniciar_servicos.py` |
+| Bom para | apresentar, rodar no PC dos colegas | desenvolver e rodar os testes |
+
+Os dois usam as mesmas portas, então **não rode os dois ao mesmo tempo**. Para trocar, encerre um antes (`docker compose down` ou Ctrl+C no iniciador).
+
+Execute os comandos **na raiz `booknet/`**, no PowerShell. Os passos 1 e 2 abaixo são para o jeito com Python. No jeito com Docker basta criar o `.env` (passo 1) e seguir a seção "V4: Docker"; a migration roda sozinha.
 
 ### 1. Preparar o ambiente (somente na primeira vez)
 
@@ -411,6 +485,7 @@ Validações feitas contra o Neon, com os serviços reais:
 - `teste_concorrencia.py`: 4 execuções na V1 e 3 na V3 (atravessando os três serviços), sempre com exatamente 1 empréstimo aprovado.
 - V2: o navegador e o `monitor_eventos.py`, conectados pelo IP da rede local (`192.168.0.101`), receberam os eventos de empréstimos feitos por outro cliente.
 - V3: com o Catálogo desligado, o empréstimo respondeu `503` na hora; com o Empréstimos desligado, o Acervo continuou funcionando no navegador.
+- V4: o sistema inteiro subiu com `docker compose up --build -d` e repetiu as verificações acima dentro dos contêineres (veja "V4: Docker").
 
 ## Estrutura do projeto
 
@@ -419,6 +494,9 @@ booknet/
 ├── README.md
 ├── requirements.txt
 ├── alembic.ini
+├── Dockerfile                  # V4: imagem dos três serviços
+├── docker-compose.yml          # V4: o sistema inteiro em contêineres
+├── .dockerignore               # V4: o que nunca entra na imagem (.env!)
 ├── backend/
 │   ├── servicos/               # V3: os três serviços (um processo cada)
 │   │   ├── base.py             # estrutura comum: CORS, erros, /health, /ws/eventos
@@ -438,7 +516,7 @@ booknet/
 ├── migrations/versions/        # 0001 catálogo · 0002 usuários e empréstimos · 0003 cópia de dados
 ├── tests/                      # apoio.py e os testes de catálogo, circulação, eventos e serviços
 ├── scripts/                    # iniciar_servicos, popular_dados, teste_concorrencia, monitor_eventos
-├── cliente/                    # Cliente Web funcional (V1), tempo real (V2), três serviços (V3)
+├── cliente/                    # Cliente Web (V1–V3) e seu Dockerfile com nginx (V4)
 ├── servico-catalogo/           # README do Serviço de Catálogo
 ├── servico-usuarios/           # README do Serviço de Usuários
 ├── servico-emprestimos/        # README do Serviço de Empréstimos
@@ -454,7 +532,7 @@ booknet/
 | Serviço de Catálogo | 8001 | Implementado (V3). |
 | Serviço de Usuários | 8002 | Implementado (V3). |
 | Serviço de Empréstimos | 8003 | Implementado (V3). |
-| Cliente Web | 8080 | Implementado (servidor estático). |
+| Cliente Web | 8080 | Implementado (servidor estático; nginx no Docker). |
 
 A porta 8000, da API única das versões V1 e V2, deixou de ser usada.
 
@@ -474,11 +552,11 @@ A porta 8000, da API única das versões V1 e V2, deixou de ser usada.
 | **V1** | **Cliente-servidor** | **Concluída**: API completa, banco no Neon, Cliente Web funcional, concorrência tratada. |
 | **V2** | **Sockets / mensagens** | **Concluída**: WebSocket com broadcast de eventos, cliente em tempo real com reconexão, monitor de terminal. |
 | **V3** | **Serviços separados** | **Concluída**: três processos (8001–8003), comunicação HTTP com timeout, saga com compensação, rotas internas com token, falhas 1 e 3 demonstradas. |
-| V4 | Docker | Planejada |
+| **V4** | **Docker** | **Concluída**: imagem dos serviços e do cliente, `docker-compose.yml` com migração automática, rede interna por nome de serviço, segredos fora da imagem. |
 | V5 | Falhas e recuperação | Planejada |
 | V6 | Orquestração | Planejada |
 
-Cada versão concluída está marcada com uma *tag* no Git (`v1`, `v2`, `v3`).
+Cada versão concluída está marcada com uma *tag* no Git (`v1`, `v2`, `v3`, `v4`).
 
 ## Tecnologias
 
@@ -495,6 +573,8 @@ Cada versão concluída está marcada com uma *tag* no Git (`v1`, `v2`, `v3`).
 | PostgreSQL / Neon | Banco de dados na nuvem. |
 | HTML, CSS e JavaScript puro | Cliente Web e dashboard, sem frameworks. |
 | unittest | Testes automatizados. |
+| Docker + Docker Compose | Contêineres dos serviços e do cliente; sistema inteiro com um comando (V4). |
+| nginx | Servidor web do Cliente Web no contêiner (V4). |
 | Git / GitHub | Versionamento e hospedagem. |
 
 ## Repositório
