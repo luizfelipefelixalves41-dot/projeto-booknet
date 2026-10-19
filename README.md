@@ -212,6 +212,44 @@ cd cliente
 
 Acesse **[http://127.0.0.1:8080/](http://127.0.0.1:8080/)**. É preciso abrir pelo servidor HTTP, e não com duplo clique no `index.html`: o CORS da API libera apenas as origens `localhost`/`127.0.0.1` nas portas `8080` e `5500`.
 
+### Demonstração em duas máquinas (rede do laboratório)
+
+É a versão do BookNet do aquecimento da Aula 2 ("Computador A servidor, Computador B cliente"). Em vez de servir arquivos soltos, o Computador A roda a API e o Cliente Web, e o Computador B usa a biblioteca só pelo navegador, através da rede.
+
+**Computador A (servidor)**, na raiz `booknet/`:
+
+```powershell
+ipconfig                                                               # anote o IPv4, ex.: 192.168.0.101
+.\.venv\Scripts\python.exe -m uvicorn backend.main:app --host 0.0.0.0 --port 8000
+```
+
+Em outro terminal, **dentro de `cliente/`**:
+
+```powershell
+..\.venv\Scripts\python.exe -m http.server 8080 --bind 0.0.0.0
+```
+
+**Computador B (cliente)**:
+
+```powershell
+ping 192.168.0.101
+```
+
+No navegador, abra `http://192.168.0.101:8080`.
+
+```text
+Computador B (navegador) ──HTTP :8080──▶ Computador A: arquivos do cliente
+Computador B (navegador) ──HTTP :8000──▶ Computador A: API FastAPI ──▶ PostgreSQL no Neon
+```
+
+O cliente descobre sozinho o endereço da API: ele usa o mesmo IP pelo qual foi aberto, na porta 8000. O CORS da API aceita origens de redes privadas (`10.x`, `172.16–31.x`, `192.168.x`) nas portas 8080 e 5500, e continua recusando origens da internet.
+
+Cuidados:
+
+- Na primeira execução, o Windows pode perguntar se permite o Python na rede. Permita em **rede privada**. Se o `ping` funcionar mas a página não abrir, o bloqueio é do firewall.
+- Use `--bind 0.0.0.0` **somente dentro de `cliente/`**. Servir a raiz `booknet/` exporia o `.env` para a rede.
+- Para a demonstração de concorrência, cada integrante pode clicar em **Emprestar** no mesmo exemplar, cada um no seu computador. Só um recebe o empréstimo.
+
 ### 5. Dados de demonstração e teste de concorrência (opcional)
 
 Com a API rodando:

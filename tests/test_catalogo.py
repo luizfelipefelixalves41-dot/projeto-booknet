@@ -296,12 +296,19 @@ class CatalogoTestes(BancoIsoladoTestCase):
         for origem in (
             "http://localhost:8080", "http://127.0.0.1:8080",
             "http://localhost:5500", "http://127.0.0.1:5500",
+            # Rede local do laboratório: cliente em outra máquina.
+            "http://192.168.0.15:8080", "http://10.0.5.20:8080", "http://172.20.1.3:5500",
         ):
             with self.subTest(origem=origem):
                 resposta = self.requisicao("GET", "/health", headers={"origin": origem})
                 self.assertEqual(resposta.headers.get("access-control-allow-origin"), origem)
-        resposta = self.requisicao("GET", "/health", headers={"origin": "https://nao-permitido.invalid"})
-        self.assertNotIn("access-control-allow-origin", resposta.headers)
+        for origem in (
+            "https://nao-permitido.invalid", "http://8.8.8.8:8080",
+            "http://192.168.0.10:3000", "http://192.168.0.10.evil.com:8080",
+        ):
+            with self.subTest(origem=origem):
+                resposta = self.requisicao("GET", "/health", headers={"origin": origem})
+                self.assertNotIn("access-control-allow-origin", resposta.headers)
         preflight = self.requisicao(
             "OPTIONS", "/livros", headers={
                 "origin": "http://localhost:8080", "access-control-request-method": "POST",

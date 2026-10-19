@@ -33,6 +33,12 @@ app.add_middleware(
         "http://localhost:5500",
         "http://127.0.0.1:5500",
     ],
+    # Demonstração em duas máquinas: cliente servido em outro PC da rede local
+    # (faixas privadas 10.x, 172.16-31.x e 192.168.x), nas mesmas portas.
+    allow_origin_regex=(
+        r"^http://(10(\.\d{1,3}){3}|192\.168(\.\d{1,3}){2}"
+        r"|172\.(1[6-9]|2\d|3[01])(\.\d{1,3}){2}):(8080|5500)$"
+    ),
     allow_credentials=False,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],

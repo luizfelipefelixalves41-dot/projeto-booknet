@@ -1,7 +1,9 @@
 "use strict";
 
 // Cliente Web do BookNet: conversa com a API FastAPI por HTTP/REST (JSON).
-const API = "http://127.0.0.1:8000";
+// A API fica na mesma máquina que serve o cliente, na porta 8000. Assim, abrindo
+// http://IP_DO_SERVIDOR:8080 em outro computador, o navegador fala com IP_DO_SERVIDOR:8000.
+const API = `http://${location.hostname || "127.0.0.1"}:8000`;
 
 const $ = (seletor, raiz = document) => raiz.querySelector(seletor);
 const $$ = (seletor, raiz = document) => [...raiz.querySelectorAll(seletor)];
