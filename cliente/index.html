@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="BookNet — Cliente Web da biblioteca universitária: acervo, usuários, empréstimos e devoluções.">
+  <meta name="theme-color" content="#176b52">
+  <title>BookNet · Biblioteca</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="style.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">B</span>
+      <span>booknet<small>CLIENTE WEB · V1</small></span>
+    </div>
+    <nav class="tabs" aria-label="Seções">
+      <button class="tab is-active" data-tab="acervo" type="button">Acervo</button>
+      <button class="tab" data-tab="usuarios" type="button">Usuários</button>
+      <button class="tab" data-tab="emprestimos" type="button">Empréstimos</button>
+    </nav>
+    <div class="status" id="status-api" role="status" title="Estado da API e do banco">
+      <span class="dot"></span><span class="status-text">Verificando…</span>
+    </div>
+  </header>
+
+  <main>
+    <!-- ACERVO -->
+    <section class="panel" id="tab-acervo">
+      <div class="panel-head">
+        <div>
+          <h1>Acervo</h1>
+          <p class="muted">Pesquise livros e verifique a disponibilidade de cada exemplar.</p>
+        </div>
+        <form class="search" id="busca-livros" role="search">
+          <input type="search" name="q" placeholder="Título, autor ou ISBN" aria-label="Pesquisar livros">
+          <button type="submit">Pesquisar</button>
+        </form>
+      </div>
+      <div class="layout">
+        <div id="lista-livros" class="list" aria-live="polite"></div>
+        <aside class="card form-card">
+          <h2 id="titulo-form-livro">Novo livro</h2>
+          <form id="form-livro">
+            <input type="hidden" name="registro_id">
+            <label>Título<input name="titulo" required maxlength="255"></label>
+            <label>Autor<input name="autor" required maxlength="255"></label>
+            <label>ISBN<input name="isbn" required maxlength="20"></label>
+            <label class="check"><input type="checkbox" name="ativo" checked> Ativo no acervo</label>
+            <div class="actions">
+              <button type="submit" class="primary">Salvar livro</button>
+              <button type="button" class="ghost" id="cancelar-livro" hidden>Cancelar</button>
+            </div>
+          </form>
+        </aside>
+      </div>
+    </section>
+
+    <!-- USUÁRIOS -->
+    <section class="panel" id="tab-usuarios" hidden>
+      <div class="panel-head">
+        <div>
+          <h1>Usuários</h1>
+          <p class="muted">Alunos e bibliotecários cadastrados.</p>
+        </div>
+        <form class="search" id="busca-usuarios" role="search">
+          <input type="search" name="q" placeholder="Nome, e-mail ou matrícula" aria-label="Pesquisar usuários">
+          <select name="tipo" aria-label="Tipo de usuário">
+            <option value="">Todos</option>
+            <option value="ALUNO">Alunos</option>
+            <option value="BIBLIOTECARIO">Bibliotecários</option>
+          </select>
+          <button type="submit">Pesquisar</button>
+        </form>
+      </div>
+      <div class="layout">
+        <div id="lista-usuarios" class="list" aria-live="polite"></div>
+        <aside class="card form-card">
+          <h2 id="titulo-form-usuario">Novo usuário</h2>
+          <form id="form-usuario">
+            <input type="hidden" name="registro_id">
+            <label>Nome<input name="nome" required maxlength="255"></label>
+            <label>E-mail<input name="email" type="email" required maxlength="255"></label>
+            <label>Matrícula<input name="matricula" required maxlength="30"></label>
+            <label>Tipo
+              <select name="tipo">
+                <option value="ALUNO">Aluno</option>
+                <option value="BIBLIOTECARIO">Bibliotecário</option>
+              </select>
+            </label>
+            <label class="check"><input type="checkbox" name="ativo" checked> Ativo</label>
+            <div class="actions">
+              <button type="submit" class="primary">Salvar usuário</button>
+              <button type="button" class="ghost" id="cancelar-usuario" hidden>Cancelar</button>
+            </div>
+          </form>
+        </aside>
+      </div>
+    </section>
+
+    <!-- EMPRÉSTIMOS -->
+    <section class="panel" id="tab-emprestimos" hidden>
+      <div class="panel-head">
+        <div>
+          <h1>Empréstimos</h1>
+          <p class="muted">Registre retiradas e devoluções. Limite de 3 empréstimos ativos por usuário.</p>
+        </div>
+        <div class="filters" role="group" aria-label="Filtrar empréstimos">
+          <button type="button" class="chip is-active" data-filtro="">Todos</button>
+          <button type="button" class="chip" data-filtro="status=ATIVO">Ativos</button>
+          <button type="button" class="chip" data-filtro="atrasados=true">Atrasados</button>
+          <button type="button" class="chip" data-filtro="status=DEVOLVIDO">Devolvidos</button>
+        </div>
+      </div>
+      <div class="layout">
+        <div id="lista-emprestimos" class="list" aria-live="polite"></div>
+        <aside class="card form-card">
+          <h2>Novo empréstimo</h2>
+          <form id="form-emprestimo">
+            <label>Usuário<select name="usuario_id" required id="select-usuario"></select></label>
+            <label>ID do exemplar<input name="exemplar_id" type="number" min="1" required></label>
+            <p class="hint" id="info-exemplar">Dica: use o botão “Emprestar” no Acervo.</p>
+            <label>Prazo (dias)<input name="prazo_dias" type="number" min="1" max="60" value="14" required></label>
+            <div class="actions"><button type="submit" class="primary">Registrar empréstimo</button></div>
+          </form>
+        </aside>
+      </div>
+    </section>
+  </main>
+
+  <div class="toasts" id="toasts" aria-live="assertive"></div>
+</body>
+</html>
