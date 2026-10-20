@@ -392,6 +392,8 @@ Na nuvem, o Empréstimos espera até 60 segundos por outro serviço (`BOOKNET_TI
 
 O plano gratuito oferece 750 horas de uso por mês, somando todos os serviços. Como eles dormem quando ninguém usa, isso sobra para o trabalho. Não use serviços para mantê-los acordados 24 horas por dia.
 
+**Publicado e verificado em 20/10/2026:** os quatro componentes ficaram *Live* no Render, e o site abriu com "Ao vivo 3/3". Pela internet, os três serviços responderam "banco online"; o CORS liberou o site; a rota interna sem token respondeu `403`; e o teste de concorrência com 4 pedidos simultâneos teve **1 aprovado e 3 recusados**, com a devolução funcionando. Isso confirma o Empréstimos falando com Catálogo e Usuários entre máquinas diferentes do Render.
+
 Esse comportamento foi simulado localmente antes da publicação: com o cliente servido num domínio "de internet" e o Catálogo parado, a faixa apareceu; ao religar o Catálogo, a página se recuperou sozinha e um empréstimo completo funcionou.
 
 ### Como publicar (uma vez só)
