@@ -16,7 +16,7 @@ name: booknet
 
 x-servico: &servico
   build: .
-  image: booknet-servicos:v4
+  image: booknet-servicos:v6
   # V5: se o processo cair (erro, falta de memória), o Docker o inicia de novo sozinho.
   restart: unless-stopped
   env_file: .env # DATABASE_URL e BOOKNET_TOKEN_INTERNO (o .env não entra na imagem)
@@ -30,7 +30,7 @@ services:
   # Roda uma vez, antes dos serviços: aplica as migrations pendentes e termina.
   migracao:
     build: .
-    image: booknet-servicos:v4
+    image: booknet-servicos:v6
     env_file: .env
     command: ["python", "-m", "alembic", "upgrade", "head"]
 
@@ -55,7 +55,7 @@ services:
 
   cliente:
     build: ./cliente
-    image: booknet-cliente:v4
+    image: booknet-cliente:v6
     restart: unless-stopped
     ports: ["8080:80"]
     depends_on: [catalogo, usuarios, emprestimos]

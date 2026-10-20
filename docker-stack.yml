@@ -1,0 +1,123 @@
+# V6: o BookNet ORQUESTRADO pelo Docker Swarm.
+#
+# A diferença para o docker-compose.yml (V4): aqui não dizemos "rode estes
+# contêineres", e sim "mantenha o sistema neste estado". O orquestrador cuida do
+# resto, o tempo todo:
+#
+#   - réplicas:          2 cópias de cada serviço; se uma morrer, ele cria outra;
+#   - balanceamento:     os pedidos para catalogo:8001 são divididos entre as réplicas;
+#   - saúde:             réplica que para de responder ao /health é substituída;
+#   - atualização:       troca uma réplica por vez, só depois de a nova estar saudável;
+#   - reversão:          se a nova versão falhar, volta para a anterior sozinho;
+#   - limites:           cada réplica tem teto de CPU e memória.
+#
+# Uso (na raiz booknet/, com o Docker Desktop aberto):
+#   docker compose build                               # gera as imagens v6
+#   docker swarm init                                  # só na primeira vez
+#   docker stack deploy -c docker-stack.yml booknet    # sobe (ou atualiza) tudo
+#   docker service ls                                  # réplicas de cada serviço
+#   docker service scale booknet_catalogo=3            # mais réplicas
+#   docker service update --force booknet_catalogo     # atualização gradual
+#   docker stack rm booknet                            # remove tudo
+#
+# Cliente Web: http://localhost:8080 (as mesmas portas da V4).
+
+x-ambiente: &ambiente
+  # Eventos "ao vivo" chegam a todas as réplicas pelo Redis (veja backend/broker.py).
+  BOOKNET_REDIS_URL: redis://redis:6379/0
+  BOOKNET_ORIGENS_EXTRAS: ${BOOKNET_ORIGENS_EXTRAS:-}
+
+x-implantacao: &implantacao
+  replicas: 2
+  update_config:
+    parallelism: 1          # uma réplica por vez
+    order: start-first      # a nova sobe antes de a antiga sair: sem tempo fora do ar
+    delay: 5s
+    failure_action: rollback
+    monitor: 20s
+  rollback_config:
+    parallelism: 1
+    order: start-first
+  restart_policy:
+    condition: any
+    delay: 3s
+  resources:
+    limits:
+      cpus: "0.50"
+      memory: 256M
+
+services:
+  redis:
+    image: redis:7.4-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
+
+  # Roda uma vez e termina: aplica as migrations pendentes no Neon.
+  migracao:
+    image: booknet-servicos:v6
+    env_file: .env
+    command: ["python", "-m", "alembic", "upgrade", "head"]
+    deploy:
+      mode: replicated-job
+
+  catalogo:
+    image: booknet-servicos:v6
+    env_file: .env
+    environment:
+      <<: *ambiente
+      PORTA: "8001"
+    command: ["python", "-m", "uvicorn", "backend.servicos.catalogo:app", "--host", "0.0.0.0", "--port", "8001"]
+    ports: ["8001:8001"]
+    healthcheck: &saude
+      test: ["CMD", "python", "-c", "import os, urllib.request; urllib.request.urlopen('http://127.0.0.1:' + os.environ['PORTA'] + '/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    deploy: *implantacao
+
+  usuarios:
+    image: booknet-servicos:v6
+    env_file: .env
+    environment:
+      <<: *ambiente
+      PORTA: "8002"
+    command: ["python", "-m", "uvicorn", "backend.servicos.usuarios:app", "--host", "0.0.0.0", "--port", "8002"]
+    ports: ["8002:8002"]
+    healthcheck: *saude
+    deploy: *implantacao
+
+  emprestimos:
+    image: booknet-servicos:v6
+    env_file: .env
+    environment:
+      <<: *ambiente
+      PORTA: "8003"
+      # "catalogo" e "usuarios" são endereços virtuais: o Swarm divide os pedidos
+      # entre as réplicas de cada um.
+      BOOKNET_URL_CATALOGO: http://catalogo:8001
+      BOOKNET_URL_USUARIOS: http://usuarios:8002
+    command: ["python", "-m", "uvicorn", "backend.servicos.emprestimos:app", "--host", "0.0.0.0", "--port", "8003"]
+    ports: ["8003:8003"]
+    healthcheck: *saude
+    deploy: *implantacao
+
+  cliente:
+    image: booknet-cliente:v6
+    ports: ["8080:80"]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any

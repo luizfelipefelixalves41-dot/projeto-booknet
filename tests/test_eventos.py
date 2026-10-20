@@ -82,7 +82,7 @@ class EventosTestes(BancoIsoladoTestCase):
         async def cenario():
             ws = ConexaoWS()
             self.assertEqual((await ws.abrir())["type"], "websocket.accept")
-            self.assertEqual((await ws.receber("conectado"))["dados"], {"conexoes": 1})
+            self.assertEqual((await ws.receber("conectado"))["dados"]["conexoes"], 1)
             await ws.enviar("ping")
             self.assertEqual((await ws.receber("pong"))["dados"], {})
             await ws.fechar()
@@ -115,7 +115,7 @@ class EventosTestes(BancoIsoladoTestCase):
             telas = [ConexaoWS(), ConexaoWS("http://192.168.0.20:8080")]
             for tela in telas:
                 await tela.abrir()
-            self.assertEqual((await telas[1].receber("conectado"))["dados"], {"conexoes": 2})
+            self.assertEqual((await telas[1].receber("conectado"))["dados"]["conexoes"], 2)
 
             resposta = await self.http(
                 "POST", "/emprestimos", {"usuario_id": usuario["id"], "exemplar_id": exemplar["id"]}
@@ -208,12 +208,12 @@ class EventosTestes(BancoIsoladoTestCase):
         self.assertEqual(nova.total, 1)
         self.assertEqual(saudavel.recebidas[0]["dados"], {"n": 1})
 
-    def test_servicos_identificam_versao_5(self):
+    def test_servicos_identificam_versao_6(self):
         for nome in APPS:
             with self.subTest(servico=nome):
                 documento = self.requisicao("GET", "/openapi.json", servico=nome).json()
-                self.assertEqual(documento["info"]["version"], "5.0.0")
-                self.assertEqual(self.requisicao("GET", "/", servico=nome).json()["versao"], "V5")
+                self.assertEqual(documento["info"]["version"], "6.0.0")
+                self.assertEqual(self.requisicao("GET", "/", servico=nome).json()["versao"], "V6")
 
 if __name__ == "__main__":
     unittest.main()

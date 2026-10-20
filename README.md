@@ -2,9 +2,9 @@
 
 **Sistema Distribuído de Gerenciamento de Biblioteca Universitária**  
 Disciplina: Sistemas Distribuídos  
-Etapa atual: **V5 — Falhas e recuperação concluída**
+Etapa atual: **V6 — Orquestração concluída · todas as versões do roteiro entregues**
 
-Entregas concluídas: **V0 (Ideia e arquitetura)**, **V1 (Cliente-servidor)**, **V2 (Sockets / mensagens)**, **V3 (Serviços separados)**, **V4 (Docker)** e **V5 (Falhas e recuperação)**
+Entregas concluídas: **V0 (Ideia e arquitetura)**, **V1 (Cliente-servidor)**, **V2 (Sockets / mensagens)**, **V3 (Serviços separados)**, **V4 (Docker)**, **V5 (Falhas e recuperação)** e **V6 (Orquestração)**
 
 ## Integrantes
 
@@ -22,8 +22,9 @@ O BookNet é um projeto acadêmico da disciplina de Sistemas Distribuídos volta
 - **V3** transformou a aplicação única nos **três serviços independentes do desenho da V0**: Catálogo, Usuários e Empréstimos, cada um em seu processo e porta. O Serviço de Empréstimos consulta os outros dois **pela rede**, com tempo limite e compensação em caso de falha.
 - **V4** empacotou cada parte em um **contêiner Docker**: um único `docker compose up` sobe a migração, os três serviços e o Cliente Web em qualquer computador com Docker, sem instalar Python.
 - **V5** fez o sistema **se recuperar** de falhas: novas tentativas seguras, disjuntor, reconciliação de exemplares presos e reinício automático dos contêineres.
+- **V6** colocou o sistema sob um **orquestrador** (Docker Swarm): 2 réplicas de cada serviço, balanceamento, autocura, atualização sem parar e **Redis** para os avisos ao vivo chegarem a todas as réplicas.
 
-A orquestração continua planejada (V6).
+Além do roteiro, o sistema ganhou **login com perfis** (aluno e bibliotecário), **temas** de cores e está **publicado na nuvem**.
 
 ## Problema
 
@@ -461,6 +462,76 @@ presos → liberar no Catálogo                                {7}
 | Reinício automático (Docker) | O processo do Empréstimos foi encerrado dentro do contêiner; o Docker o reiniciou sozinho (contador de reinícios 0 → 1) e o serviço voltou a responder em menos de 1 segundo. |
 | Reconciliação no Neon | `POST /emprestimos/reconciliacao`: 0 exemplares presos (dados consistentes). |
 
+## V6: Orquestração (Docker Swarm)
+
+Na V4, o `docker compose up` **liga** os contêineres. Se um travar, alguém precisa perceber e religar. Se a demanda crescer, alguém precisa subir mais cópias. Se sair uma versão nova, alguém desliga a antiga e liga a nova, e o sistema fica fora do ar nesse meio-tempo.
+
+Na V6, quem faz isso é um **orquestrador**: o **Docker Swarm**, que já vem no Docker Desktop. Em vez de mandar "rode estes contêineres", descrevemos **o estado desejado** em [`docker-stack.yml`](docker-stack.yml) ("quero 2 cópias saudáveis de cada serviço"), e o orquestrador trabalha o tempo todo para manter esse estado.
+
+```text
+                         navegador · http://localhost:8080
+                                     │
+                    ┌────────── balanceador do Swarm ──────────┐
+                    ▼                    ▼                     ▼
+             Catálogo ×2           Usuários ×2          Empréstimos ×2
+            (réplica A, B)        (réplica A, B)        (réplica A, B)
+                    │  publica/assina eventos  │                  │
+                    └────────────────▶ Redis ◀─┴──────────────────┘
+                                     │
+                        PostgreSQL no Neon (todas as réplicas)
+```
+
+| O orquestrador... | Como está configurado | Verificado nesta entrega |
+| --- | --- | --- |
+| **Mantém réplicas** | `replicas: 2` para cada serviço | `docker service ls`: catalogo 2/2, usuarios 2/2, emprestimos 2/2 |
+| **Divide os pedidos** | Endereço virtual por serviço (`catalogo:8001`) | 12 pedidos seguidos ao Catálogo: 6 em cada réplica, alternando |
+| **Se cura sozinho** | `restart_policy` + `healthcheck` no `/health` | Uma réplica foi **morta** com `docker kill`: o Swarm criou outra em 2 s. **172 pedidos, 0 falhas (100%)** |
+| **Atualiza sem parar** | `update_config`: 1 réplica por vez, a nova sobe antes de a antiga sair | `docker service update --force`: as 2 réplicas trocadas. **284 pedidos, 1 falha (99,6%)**, no instante exato da troca |
+| **Volta atrás se der errado** | `failure_action: rollback` | Se a nova versão não ficar saudável, a anterior é restaurada |
+| **Limita recursos** | 0,5 CPU e 256 MB por réplica | Uma réplica descontrolada não derruba o computador |
+| **Executa tarefas únicas** | `migracao` como `replicated-job` | Aplicou as migrations e terminou (1/1 completed) |
+
+### O problema novo: avisos "ao vivo" com várias réplicas
+
+Com 2 réplicas, o navegador fica conectado ao WebSocket de **uma** delas, digamos a A. Se o cadastro de um livro for atendido pela réplica B, a central de eventos de B não conhece a conexão que está em A, e **o aviso se perderia**. É um problema típico de sistemas distribuídos: **estado local em cada réplica**.
+
+A solução é um **intermediário de mensagens**: o **Redis Pub/Sub** ([`backend/broker.py`](backend/broker.py)). Cada réplica publica seus eventos no canal do serviço (`booknet:catalogo`), e todas assinam esse canal. Quem recebe repassa às conexões que tem.
+
+Verificação: 4 navegadores conectados ao Catálogo, 2 em cada réplica, e 6 alterações de livro espalhadas entre as réplicas. **Todos os 4 receberam 6/6 avisos.** O Redis mostrou 2 assinantes em cada canal.
+
+O Redis também foi tratado como algo que pode falhar (V5): se ele cair, a réplica entrega os avisos ao menos às próprias conexões e reconecta sozinha quando ele volta. Sem `BOOKNET_REDIS_URL` (nos testes e no Render, com uma instância por serviço), tudo funciona como na V2.
+
+### O que ainda é por réplica
+
+Com várias réplicas, algumas informações ficam na memória de cada uma, o que é aceitável neste projeto:
+
+- o **disjuntor** (V5): cada réplica do Empréstimos tem o seu;
+- o **bloqueio após 5 senhas erradas**: cada réplica do Usuários conta separadamente. Com 2 réplicas, um atacante teria até 10 tentativas.
+
+A **reconciliação** roda nas 2 réplicas do Empréstimos. Como liberar um exemplar é idempotente, rodar duas vezes não causa problema. Para compartilhar esses estados, o próximo passo seria guardá-los também no Redis.
+
+### Como demonstrar
+
+```powershell
+docker compose down                                  # libera as portas da V4
+docker compose build                                 # gera as imagens v6
+docker swarm init                                    # só na primeira vez
+docker stack deploy -c docker-stack.yml booknet      # sobe tudo orquestrado
+docker service ls                                    # réplicas de cada serviço
+
+.\.venv\Scripts\python.exe scripts\observar_instancias.py catalogo           # balanceamento
+.\.venv\Scripts\python.exe scripts\observar_instancias.py catalogo --por 60  # em outro terminal:
+docker kill <id de um contêiner do catálogo>         # ...o Swarm repõe sozinho
+docker service update --force booknet_catalogo       # ...atualização sem parar
+docker service scale booknet_catalogo=3              # mais réplicas
+
+docker stack rm booknet                              # remove tudo
+```
+
+### E na nuvem?
+
+O **Render também é um orquestrador**, gerenciado por eles: ele confere o `/health` de cada serviço, reinicia o que cair e publica versões novas sem tirar o site do ar (*zero-downtime deploy*). No plano gratuito ele roda **uma instância por serviço**, por isso o site público não precisa do Redis. Os conceitos de réplicas e intermediário de mensagens foram demonstrados localmente com o Swarm.
+
 ## BookNet na nuvem (Render)
 
 Para usar o BookNet de qualquer lugar (faculdade, celular, casa de um colega) sem depender de um computador ligado, o sistema roda no **Render** (render.com), no plano gratuito, sem cartão de crédito. O banco continua no Neon.
@@ -628,7 +699,7 @@ Desde o login, os scripts entram como bibliotecário e pedem a senha (ou leem `B
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
 
-**106 testes passando.** Eles usam SQLite em memória e não acessam o `.env` nem o Neon, porque qualquer tentativa de conexão PostgreSQL é bloqueada. Os três serviços rodam dentro do processo de teste. As chamadas entre eles usam o cliente `httpx` real, com um transporte simulado que entrega cada pedido ao serviço de destino. Isso permite simular **serviço fora do ar** e **timeout** de forma controlada.
+**112 testes passando.** Eles usam SQLite em memória e não acessam o `.env` nem o Neon, porque qualquer tentativa de conexão PostgreSQL é bloqueada. Os três serviços rodam dentro do processo de teste. As chamadas entre eles usam o cliente `httpx` real, com um transporte simulado que entrega cada pedido ao serviço de destino. Isso permite simular **serviço fora do ar** e **timeout** de forma controlada.
 
 | Arquivo | Cobertura |
 | --- | --- |
@@ -637,6 +708,7 @@ Desde o login, os scripts entram como bibliotecário e pedem a senha (ou leem `B
 | `tests/test_circulacao.py` | Usuários, fluxo completo de empréstimo e devolução, indisponibilidade, limite de 3, atraso, usuário e livro inativos, índice único parcial com **compensação**, filtros e constraints. |
 | `tests/test_eventos.py` | WebSocket (V2): boas-vindas e ping/pong, origem recusada (`1008`), broadcast para várias telas, ausência de evento em operação recusada, **um canal por serviço** e remoção de conexão quebrada. |
 | `tests/test_autenticacao.py` | Login: hash de senha, token adulterado/expirado/sem assinatura, mensagem genérica, aba errada, conta desativada, bloqueio após 5 erros, troca de senha, `401` sem login, `403` de aluno em rotas de bibliotecário, aluno só empresta e vê para si, WebSocket com token e filtrado por perfil. |
+| `tests/test_orquestracao.py` | V6: evento publicado numa réplica chega aos navegadores da outra, filtro por perfil entre réplicas, canais separados por serviço, Redis fora do ar (entrega local) e reconexão da escuta. |
 | `tests/test_resiliencia.py` | V5: disjuntor, novas tentativas (seguras e proibidas), reconciliação e execução periódica. |
 | `tests/test_servicos.py` | V3: cada serviço expõe só as próprias rotas, token das rotas internas, retirada e liberação idempotente, Usuários fora do ar (`503`), Catálogo lento (`504`), devolução desfeita e repetida, compensação que falha, lista de empréstimos com os outros serviços fora do ar, cópia dos dados do momento e erro `500` remoto virando `503`. |
 
@@ -657,6 +729,7 @@ booknet/
 ├── alembic.ini
 ├── Dockerfile                  # V4: imagem dos três serviços
 ├── docker-compose.yml          # V4: o sistema inteiro em contêineres
+├── docker-stack.yml            # V6: o sistema orquestrado (Docker Swarm)
 ├── .dockerignore               # V4: o que nunca entra na imagem (.env!)
 ├── render.yaml                 # nuvem: os quatro componentes no Render
 ├── backend/
@@ -668,6 +741,7 @@ booknet/
 │   ├── servicos_remotos.py     # V3/V5: cliente HTTP com timeout, novas tentativas e disjuntor
 │   ├── resiliencia.py          # V5: disjuntor (circuit breaker)
 │   ├── reconciliacao.py        # V5: libera exemplares presos
+│   ├── broker.py               # V6: Redis Pub/Sub entre réplicas
 │   ├── config.py               # leitura do .env (banco, endereços, token, timeout)
 │   ├── database.py             # engine PostgreSQL e sessões
 │   ├── errors.py               # respostas de erro seguras
@@ -680,7 +754,7 @@ booknet/
 │   └── routers/                # catalogo.py, usuarios.py, emprestimos.py
 ├── migrations/versions/        # 0001 catálogo · 0002 usuários e empréstimos · 0003 cópia de dados · 0004 V5
 ├── tests/                      # apoio.py e os testes de catálogo, circulação, eventos e serviços
-├── scripts/                    # iniciar_servicos, definir_senha, popular_dados, teste_concorrencia, monitor_eventos
+├── scripts/                    # iniciar_servicos, definir_senha, popular_dados, teste_concorrencia, monitor_eventos, observar_instancias
 ├── cliente/                    # Cliente Web (V1–V3), Dockerfile com nginx (V4) e config.js da nuvem
 ├── servico-catalogo/           # README do Serviço de Catálogo
 ├── servico-usuarios/           # README do Serviço de Usuários
@@ -705,7 +779,7 @@ A porta 8000, da API única das versões V1 e V2, deixou de ser usada.
 
 | Falha documentada na V0 | Situação na V3 |
 | --- | --- |
-| 1. Serviço de Empréstimos indisponível | **Isolada e recuperada**: com o Empréstimos fora do ar, Catálogo e Usuários continuam funcionando, e o cliente informa qual serviço caiu. Se o processo morrer, o Docker o reinicia sozinho (V5). |
+| 1. Serviço de Empréstimos indisponível | **Isolada, recuperada e evitada**: com o Empréstimos fora do ar, Catálogo e Usuários continuam funcionando. Se o processo morrer, o Docker o reinicia (V5). Com 2 réplicas no Swarm, a queda de uma nem é percebida: 100% dos pedidos atendidos (V6). |
 | 2. Dois usuários pedem o mesmo exemplar | **Resolvida** entre serviços: retirada atômica no Catálogo, índice único parcial e compensação, demonstrados contra o Neon. Se a compensação falhar, a reconciliação libera o exemplar (V5). |
 | 3. Falha de comunicação Empréstimos → Catálogo | **Tratada e recuperada**: tempo limite, respostas `503`/`504` claras, novas tentativas automáticas nas operações seguras e disjuntor que evita esperas inúteis (V5). |
 
@@ -719,9 +793,9 @@ A porta 8000, da API única das versões V1 e V2, deixou de ser usada.
 | **V3** | **Serviços separados** | **Concluída**: três processos (8001–8003), comunicação HTTP com timeout, saga com compensação, rotas internas com token, falhas 1 e 3 demonstradas. |
 | **V4** | **Docker** | **Concluída**: imagem dos serviços e do cliente, `docker-compose.yml` com migração automática, rede interna por nome de serviço, segredos fora da imagem. |
 | **V5** | **Falhas e recuperação** | **Concluída**: novas tentativas com espera crescente, disjuntor por serviço, reconciliação periódica, reinício automático dos contêineres. |
-| V6 | Orquestração | Planejada |
+| **V6** | **Orquestração** | **Concluída**: Docker Swarm com 2 réplicas por serviço, balanceamento, autocura (100% de disponibilidade com réplica morta), atualização gradual, limites de recursos e Redis Pub/Sub entre réplicas. |
 
-Cada versão concluída está marcada com uma *tag* no Git (`v1`, `v2`, `v3`, `v4`, `v5`).
+Cada versão concluída está marcada com uma *tag* no Git (`v1` a `v6`).
 
 ## Tecnologias
 
@@ -739,6 +813,8 @@ Cada versão concluída está marcada com uma *tag* no Git (`v1`, `v2`, `v3`, `v
 | HTML, CSS e JavaScript puro | Cliente Web e dashboard, sem frameworks. |
 | unittest | Testes automatizados. |
 | Docker + Docker Compose | Contêineres dos serviços e do cliente; sistema inteiro com um comando (V4). |
+| Docker Swarm | Orquestração: réplicas, balanceamento, autocura e atualização gradual (V6). |
+| Redis | Intermediário de mensagens (Pub/Sub) entre réplicas (V6). |
 | nginx | Servidor web do Cliente Web no contêiner (V4). |
 | Render | Hospedagem gratuita dos serviços e do Cliente Web na nuvem. |
 | Git / GitHub | Versionamento e hospedagem. |

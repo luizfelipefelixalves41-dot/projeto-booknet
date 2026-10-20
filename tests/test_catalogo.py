@@ -27,13 +27,15 @@ class CatalogoTestes(BancoIsoladoTestCase):
         self.assertEqual(resposta.status_code, 200)
         self.assertEqual(
             resposta.json(),
-            {"projeto": "BookNet", "servico": "catalogo", "status": "online", "versao": "V5"},
+            {"projeto": "BookNet", "servico": "catalogo", "status": "online", "versao": "V6"},
         )
 
     def test_health_preservado(self):
         resposta = self.requisicao("GET", "/health")
         self.assertEqual(resposta.status_code, 200)
-        self.assertEqual(resposta.json(), {"status": "ok", "servico": "catalogo"})
+        corpo = resposta.json()
+        self.assertEqual((corpo["status"], corpo["servico"]), ("ok", "catalogo"))
+        self.assertTrue(corpo["instancia"])  # V6: qual réplica respondeu
 
     def test_health_database_online_somente_no_sqlite_isolado(self):
         resposta = self.requisicao("GET", "/health/database")

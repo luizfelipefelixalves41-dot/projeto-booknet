@@ -53,3 +53,7 @@ if SEGREDO_SESSAO == SEGREDO_PADRAO_DESENVOLVIMENTO:
         "BOOKNET_SEGREDO_SESSAO não definido: usando o segredo padrão de desenvolvimento."
     )
 SESSAO_VALIDADE_HORAS = float(os.getenv("BOOKNET_SESSAO_VALIDADE_HORAS", "8"))
+
+# V6: Redis Pub/Sub para os eventos chegarem a todas as réplicas de um serviço.
+# Vazio: cada serviço entrega os próprios eventos (uma instância por serviço).
+REDIS_URL = os.getenv("BOOKNET_REDIS_URL", "").strip()

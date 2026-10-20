@@ -17,7 +17,11 @@ mensagem só vai para quem pode vê-la. Um aluno recebe os avisos do acervo e do
 próprios empréstimos; o bibliotecário recebe tudo.
 """
 
+import asyncio
+import json
 import logging
+import socket
+from contextlib import suppress
 from datetime import datetime, timezone
 from typing import Annotated, Any
 
@@ -29,30 +33,72 @@ from backend.origens import origem_permitida
 
 
 logger = logging.getLogger("booknet.eventos")
+# V6: nome da réplica que atende a conexão (aparece na mensagem de boas-vindas).
+INSTANCIA = socket.gethostname()
 router = APIRouter(tags=["Eventos"])
 
 
 class CentralDeEventos:
-    """Mantém as conexões abertas e envia cada mensagem a todas elas (broadcast)."""
+    """Mantém as conexões abertas e envia cada mensagem a todas elas (broadcast).
+
+    V6: com um intermediário (Redis), ``publicar`` manda o evento para o canal do
+    serviço e cada réplica, ao recebê-lo, entrega às suas próprias conexões.
+    """
 
     # Tudo roda na mesma thread do event loop: alterações no conjunto entre dois
     # "await" não se intercalam, então não é preciso trava.
-    def __init__(self) -> None:
+    def __init__(self, servico: str = "booknet", broker=None) -> None:
         self._conexoes: dict[WebSocket, Sessao] = {}
+        self.canal = f"booknet:{servico}"
+        self.broker = broker
+        self._escuta: asyncio.Task | None = None
 
     @property
     def total(self) -> int:
         return len(self._conexoes)
 
+    async def iniciar(self) -> None:
+        if self.broker is not None and self._escuta is None:
+            self._escuta = asyncio.create_task(self._escutar_broker())
+
+    async def encerrar(self) -> None:
+        if self._escuta is not None:
+            self._escuta.cancel()
+            with suppress(asyncio.CancelledError):
+                await self._escuta
+            self._escuta = None
+        if self.broker is not None:
+            await self.broker.fechar()
+
+    async def _escutar_broker(self) -> None:
+        espera = 1
+        while True:
+            try:
+                async for bruta in self.broker.escutar(self.canal):
+                    espera = 1
+                    envelope = json.loads(bruta)
+                    await self._entregar(
+                        envelope["mensagem"], envelope["dono_id"], envelope["somente_bibliotecarios"]
+                    )
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                # V5 aplicado ao V6: Redis fora do ar não derruba o serviço; tenta de novo.
+                logger.warning("Intermediário de mensagens indisponível; nova tentativa em %ss.", espera)
+                await asyncio.sleep(espera)
+                espera = min(espera * 2, 30)
+
     async def conectar(self, websocket: WebSocket, sessao: Sessao) -> None:
         await websocket.accept()
         self._conexoes[websocket] = sessao
-        await websocket.send_json(self.montar_mensagem("conectado", {"conexoes": self.total}))
-        await self.publicar("conexoes.alteradas", {"conexoes": self.total})
+        await websocket.send_json(
+            self.montar_mensagem("conectado", {"conexoes": self.total, "instancia": INSTANCIA})
+        )
+        await self._entregar(self.montar_mensagem("conexoes.alteradas", {"conexoes": self.total}))
 
     async def desconectar(self, websocket: WebSocket) -> None:
         self._conexoes.pop(websocket, None)
-        await self.publicar("conexoes.alteradas", {"conexoes": self.total})
+        await self._entregar(self.montar_mensagem("conexoes.alteradas", {"conexoes": self.total}))
 
     async def publicar(
         self,
@@ -64,6 +110,18 @@ class CentralDeEventos:
         """``dono_id``: só o bibliotecário e o próprio usuário recebem (ex.: empréstimos).
         ``somente_bibliotecarios``: só bibliotecários recebem (ex.: cadastro de usuários)."""
         mensagem = self.montar_mensagem(tipo, dados)
+        if self.broker is not None:
+            envelope = {"mensagem": mensagem, "dono_id": dono_id, "somente_bibliotecarios": somente_bibliotecarios}
+            try:
+                await self.broker.publicar(self.canal, json.dumps(envelope))
+                return
+            except Exception:
+                logger.warning("Intermediário de mensagens indisponível; entregando só nesta réplica.")
+        await self._entregar(mensagem, dono_id, somente_bibliotecarios)
+
+    async def _entregar(
+        self, mensagem: dict[str, Any], dono_id: int | None = None, somente_bibliotecarios: bool = False
+    ) -> None:
         for websocket, sessao in list(self._conexoes.items()):
             if not sessao.bibliotecario and (
                 somente_bibliotecarios or (dono_id is not None and dono_id != sessao.usuario_id)
