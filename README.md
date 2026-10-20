@@ -2,9 +2,9 @@
 
 **Sistema Distribuído de Gerenciamento de Biblioteca Universitária**  
 Disciplina: Sistemas Distribuídos  
-Etapa atual: **V4 — Docker concluída**
+Etapa atual: **V5 — Falhas e recuperação concluída**
 
-Entregas concluídas: **V0 (Ideia e arquitetura)**, **V1 (Cliente-servidor)**, **V2 (Sockets / mensagens)**, **V3 (Serviços separados)** e **V4 (Docker)**
+Entregas concluídas: **V0 (Ideia e arquitetura)**, **V1 (Cliente-servidor)**, **V2 (Sockets / mensagens)**, **V3 (Serviços separados)**, **V4 (Docker)** e **V5 (Falhas e recuperação)**
 
 ## Integrantes
 
@@ -21,8 +21,9 @@ O BookNet é um projeto acadêmico da disciplina de Sistemas Distribuídos volta
 - **V2** acrescentou **mensagens em tempo real por WebSocket**: quando alguém empresta ou devolve um livro, todas as telas abertas são avisadas na hora.
 - **V3** transformou a aplicação única nos **três serviços independentes do desenho da V0**: Catálogo, Usuários e Empréstimos, cada um em seu processo e porta. O Serviço de Empréstimos consulta os outros dois **pela rede**, com tempo limite e compensação em caso de falha.
 - **V4** empacotou cada parte em um **contêiner Docker**: um único `docker compose up` sobe a migração, os três serviços e o Cliente Web em qualquer computador com Docker, sem instalar Python.
+- **V5** fez o sistema **se recuperar** de falhas: novas tentativas seguras, disjuntor, reconciliação de exemplares presos e reinício automático dos contêineres.
 
-Recuperação de falhas e orquestração continuam planejadas (V5 e V6).
+A orquestração continua planejada (V6).
 
 ## Problema
 
@@ -357,6 +358,60 @@ Acesse **http://localhost:8080**. As portas 8001 a 8003 e 8080 ficam abertas tam
 | Falha 1 | Com `docker compose stop emprestimos`, o indicador ficou vermelho e o Acervo continuou funcionando no navegador. |
 | Segurança da imagem | Usuário `booknet` (não `root`); `/app` contém só `alembic.ini`, `backend`, `migrations` e `requirements.txt`, sem `.env`. |
 
+## V5: Falhas e recuperação
+
+Até a V4, o BookNet **detectava** falhas: respondia `503` ou `504` e mostrava que um serviço tinha caído. Na V5 ele passa a **se recuperar** sozinho. Em sistemas distribuídos, falhas não são exceção, são rotina: a rede oscila, um serviço reinicia, na nuvem gratuita um serviço dorme. O sistema precisa sobreviver a elas.
+
+| Mecanismo | Problema que resolve | Onde está |
+| --- | --- | --- |
+| **Novas tentativas** com espera crescente | Falha passageira (o serviço piscou, a conexão caiu por um instante) | `backend/servicos_remotos.py` |
+| **Disjuntor** (*circuit breaker*) | Serviço caído de vez: evita que todos fiquem esperando e dá tempo para ele se recuperar | `backend/resiliencia.py` |
+| **Reconciliação** | Exemplar "preso" como emprestado sem empréstimo, quando até a compensação falhou | `backend/reconciliacao.py` |
+| **Reinício automático** | O processo de um serviço morreu | `restart: unless-stopped` no `docker-compose.yml` |
+
+### Novas tentativas: só quando repetir é seguro
+
+Quando a chamada a outro serviço falha, o Empréstimos tenta de novo até 3 vezes, esperando cada vez mais (0,3 s, 0,6 s, 1,2 s…), com um pouco de aleatoriedade para que vários clientes não tentem todos no mesmo instante. **Mas nem toda operação pode ser repetida:**
+
+| Situação | Repete? | Por quê |
+| --- | --- | --- |
+| Falha de conexão (pedido nem chegou) | Sim, qualquer operação | O outro serviço não fez nada. |
+| Erro 5xx ao **consultar usuário** ou **liberar exemplar** | Sim | Operações **idempotentes**: repetir não muda o resultado. |
+| Erro 5xx ou tempo esgotado na **retirada de exemplar** | **Não** | A retirada pode ter acontecido. Repetir poderia reservar o exemplar duas vezes, e quem corrige isso é a reconciliação. |
+
+### Disjuntor
+
+```text
+ FECHADO ──3 falhas seguidas──▶ ABERTO ──30 s──▶ MEIO_ABERTO ──sucesso──▶ FECHADO
+                                   ▲                  │
+                                   └──── falha ───────┘
+```
+
+Com o circuito **aberto**, as chamadas àquele serviço falham **na hora**, com `503 Serviço de Catálogo indisponível no momento. Nova tentativa em 27 s.`, em vez de cada usuário esperar o tempo limite. Passados 30 segundos, uma chamada de teste é liberada: se der certo, tudo volta ao normal. O estado dos disjuntores fica em `GET /health/dependencias`, no Serviço de Empréstimos.
+
+### Reconciliação
+
+A saga da V3 compensa falhas, mas e se **a própria compensação falhar**, por exemplo com o Catálogo caindo exatamente naquele segundo? O exemplar ficaria marcado como emprestado para sempre. A reconciliação compara as duas visões e corrige a diferença:
+
+```text
+Catálogo:     exemplares EMPRESTADO há mais de 2 minutos   {4, 7, 9}
+Empréstimos:  exemplares com empréstimo ATIVO               {4, 9}
+                                                            ──────
+presos → liberar no Catálogo                                {7}
+```
+
+- Roda **sozinha a cada 5 minutos** e também pode ser disparada em `POST /emprestimos/reconciliacao`.
+- Ignora exemplares que mudaram há menos de **2 minutos**, porque eles podem pertencer a um empréstimo que ainda está sendo gravado. Para isso, o Catálogo registra em `exemplares.alterado_em` o momento de cada mudança (migration `0004`).
+- Se o Catálogo estiver fora do ar, a rodada é adiada para o próximo ciclo, sem alterar nada.
+
+### Verificado nesta entrega
+
+| Verificação | Resultado |
+| --- | --- |
+| Testes automáticos da V5 (`tests/test_resiliencia.py`) | 11 testes: transições do disjuntor; falha passageira superada na 2ª e 3ª tentativas com espera crescente; retirada não repetida após erro 5xx; liberação repetida; disjuntor aberto respondendo sem chamar o serviço e fechando quando ele volta; reconciliação liberando só o exemplar preso fora da carência; reconciliação adiada com o Catálogo fora do ar; execução periódica que continua após uma falha. |
+| Reinício automático (Docker) | O processo do Empréstimos foi encerrado dentro do contêiner; o Docker o reiniciou sozinho (contador de reinícios 0 → 1) e o serviço voltou a responder em menos de 1 segundo. |
+| Reconciliação no Neon | `POST /emprestimos/reconciliacao`: 0 exemplares presos (dados consistentes). |
+
 ## BookNet na nuvem (Render)
 
 Para usar o BookNet de qualquer lugar (faculdade, celular, casa de um colega) sem depender de um computador ligado, o sistema roda no **Render** (render.com), no plano gratuito, sem cartão de crédito. O banco continua no Neon.
@@ -448,7 +503,7 @@ Esse arquivo é ignorado pelo Git e nunca deve ser enviado ao GitHub. Sem `BOOKN
 .\.venv\Scripts\python.exe -m alembic current
 ```
 
-O banco do projeto no Neon já está na revisão `0003_dados_copiados_emprestimo (head)`. Rodar `upgrade head` novamente não altera nada.
+O banco do projeto no Neon já está na revisão `0004_recuperacao_e_login (head)`. Rodar `upgrade head` novamente não altera nada.
 
 ### 3. Iniciar tudo com um comando
 
@@ -523,7 +578,7 @@ Os três aceitam o IP do Computador A como argumento (ex.: `scripts\monitor_even
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
 
-**80 testes passando.** Eles usam SQLite em memória e não acessam o `.env` nem o Neon, porque qualquer tentativa de conexão PostgreSQL é bloqueada. Os três serviços rodam dentro do processo de teste. As chamadas entre eles usam o cliente `httpx` real, com um transporte simulado que entrega cada pedido ao serviço de destino. Isso permite simular **serviço fora do ar** e **timeout** de forma controlada.
+**91 testes passando.** Eles usam SQLite em memória e não acessam o `.env` nem o Neon, porque qualquer tentativa de conexão PostgreSQL é bloqueada. Os três serviços rodam dentro do processo de teste. As chamadas entre eles usam o cliente `httpx` real, com um transporte simulado que entrega cada pedido ao serviço de destino. Isso permite simular **serviço fora do ar** e **timeout** de forma controlada.
 
 | Arquivo | Cobertura |
 | --- | --- |
@@ -531,6 +586,7 @@ Os três aceitam o IP do Computador A como argumento (ex.: `scripts\monitor_even
 | `tests/test_catalogo.py` | Rotas de sistema, CORS, livros, exemplares, busca, paginação, erros seguros e constraints. |
 | `tests/test_circulacao.py` | Usuários, fluxo completo de empréstimo e devolução, indisponibilidade, limite de 3, atraso, usuário e livro inativos, índice único parcial com **compensação**, filtros e constraints. |
 | `tests/test_eventos.py` | WebSocket (V2): boas-vindas e ping/pong, origem recusada (`1008`), broadcast para várias telas, ausência de evento em operação recusada, **um canal por serviço** e remoção de conexão quebrada. |
+| `tests/test_resiliencia.py` | V5: disjuntor, novas tentativas (seguras e proibidas), reconciliação e execução periódica. |
 | `tests/test_servicos.py` | V3: cada serviço expõe só as próprias rotas, token das rotas internas, retirada e liberação idempotente, Usuários fora do ar (`503`), Catálogo lento (`504`), devolução desfeita e repetida, compensação que falha, lista de empréstimos com os outros serviços fora do ar, cópia dos dados do momento e erro `500` remoto virando `503`. |
 
 Validações feitas contra o Neon, com os serviços reais:
@@ -558,7 +614,9 @@ booknet/
 │   │   ├── catalogo.py         # porta 8001
 │   │   ├── usuarios.py         # porta 8002
 │   │   └── emprestimos.py      # porta 8003
-│   ├── servicos_remotos.py     # V3: cliente HTTP com timeout (Empréstimos → outros)
+│   ├── servicos_remotos.py     # V3/V5: cliente HTTP com timeout, novas tentativas e disjuntor
+│   ├── resiliencia.py          # V5: disjuntor (circuit breaker)
+│   ├── reconciliacao.py        # V5: libera exemplares presos
 │   ├── config.py               # leitura do .env (banco, endereços, token, timeout)
 │   ├── database.py             # engine PostgreSQL e sessões
 │   ├── errors.py               # respostas de erro seguras
@@ -568,7 +626,7 @@ booknet/
 │   ├── models/                 # Livro, Exemplar, Usuario, Emprestimo
 │   ├── schemas/                # validação Pydantic de entrada e saída
 │   └── routers/                # catalogo.py, usuarios.py, emprestimos.py
-├── migrations/versions/        # 0001 catálogo · 0002 usuários e empréstimos · 0003 cópia de dados
+├── migrations/versions/        # 0001 catálogo · 0002 usuários e empréstimos · 0003 cópia de dados · 0004 V5
 ├── tests/                      # apoio.py e os testes de catálogo, circulação, eventos e serviços
 ├── scripts/                    # iniciar_servicos, popular_dados, teste_concorrencia, monitor_eventos
 ├── cliente/                    # Cliente Web (V1–V3), Dockerfile com nginx (V4) e config.js da nuvem
@@ -595,9 +653,9 @@ A porta 8000, da API única das versões V1 e V2, deixou de ser usada.
 
 | Falha documentada na V0 | Situação na V3 |
 | --- | --- |
-| 1. Serviço de Empréstimos indisponível | **Isolada**: com o Empréstimos fora do ar, Catálogo e Usuários continuam funcionando e o cliente informa qual serviço caiu. Recuperação automática (reiniciar o serviço) fica para a V5/V6. |
-| 2. Dois usuários pedem o mesmo exemplar | **Resolvida** entre serviços: retirada atômica no Catálogo, índice único parcial e compensação, demonstrados contra o Neon. |
-| 3. Falha de comunicação Empréstimos → Catálogo | **Tratada**: tempo limite de 3s, respostas `503`/`504` claras, compensação e devolução que pode ser repetida. Novas tentativas automáticas ficam para a V5. |
+| 1. Serviço de Empréstimos indisponível | **Isolada e recuperada**: com o Empréstimos fora do ar, Catálogo e Usuários continuam funcionando, e o cliente informa qual serviço caiu. Se o processo morrer, o Docker o reinicia sozinho (V5). |
+| 2. Dois usuários pedem o mesmo exemplar | **Resolvida** entre serviços: retirada atômica no Catálogo, índice único parcial e compensação, demonstrados contra o Neon. Se a compensação falhar, a reconciliação libera o exemplar (V5). |
+| 3. Falha de comunicação Empréstimos → Catálogo | **Tratada e recuperada**: tempo limite, respostas `503`/`504` claras, novas tentativas automáticas nas operações seguras e disjuntor que evita esperas inúteis (V5). |
 
 ## Evolução
 
@@ -608,10 +666,10 @@ A porta 8000, da API única das versões V1 e V2, deixou de ser usada.
 | **V2** | **Sockets / mensagens** | **Concluída**: WebSocket com broadcast de eventos, cliente em tempo real com reconexão, monitor de terminal. |
 | **V3** | **Serviços separados** | **Concluída**: três processos (8001–8003), comunicação HTTP com timeout, saga com compensação, rotas internas com token, falhas 1 e 3 demonstradas. |
 | **V4** | **Docker** | **Concluída**: imagem dos serviços e do cliente, `docker-compose.yml` com migração automática, rede interna por nome de serviço, segredos fora da imagem. |
-| V5 | Falhas e recuperação | Planejada |
+| **V5** | **Falhas e recuperação** | **Concluída**: novas tentativas com espera crescente, disjuntor por serviço, reconciliação periódica, reinício automático dos contêineres. |
 | V6 | Orquestração | Planejada |
 
-Cada versão concluída está marcada com uma *tag* no Git (`v1`, `v2`, `v3`, `v4`).
+Cada versão concluída está marcada com uma *tag* no Git (`v1`, `v2`, `v3`, `v4`, `v5`).
 
 ## Tecnologias
 

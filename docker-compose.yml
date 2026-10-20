@@ -3,6 +3,7 @@
 #   docker compose up --build        sobe tudo (Ctrl+C encerra)
 #   docker compose up --build -d     sobe em segundo plano
 #   docker compose stop emprestimos  derruba um serviço (falha 1)
+#   docker compose kill emprestimos  simula uma queda: o Docker o reinicia (V5)
 #   docker compose down              remove os contêineres
 #
 # Cliente Web: http://localhost:8080
@@ -16,6 +17,8 @@ name: booknet
 x-servico: &servico
   build: .
   image: booknet-servicos:v4
+  # V5: se o processo cair (erro, falta de memória), o Docker o inicia de novo sozinho.
+  restart: unless-stopped
   env_file: .env # DATABASE_URL e BOOKNET_TOKEN_INTERNO (o .env não entra na imagem)
   environment: &ambiente
     BOOKNET_ORIGENS_EXTRAS: ${BOOKNET_ORIGENS_EXTRAS:-} # origens além de localhost e da rede local
@@ -53,5 +56,6 @@ services:
   cliente:
     build: ./cliente
     image: booknet-cliente:v4
+    restart: unless-stopped
     ports: ["8080:80"]
     depends_on: [catalogo, usuarios, emprestimos]

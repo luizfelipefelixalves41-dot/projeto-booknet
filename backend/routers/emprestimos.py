@@ -22,6 +22,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from backend.dependencies.database import get_db
+from backend import reconciliacao
 from backend.eventos import Central
 from backend.models.emprestimo import Emprestimo, StatusEmprestimo
 from backend.schemas.emprestimo import EmprestimoCreate, EmprestimoResponse
@@ -29,6 +30,7 @@ from backend.servicos_remotos import ServicosRemotos, obter_servicos_remotos
 
 
 router = APIRouter(prefix="/emprestimos", tags=["Empréstimos"])
+router_sistema = APIRouter(tags=["Sistema"])
 logger = logging.getLogger("booknet.emprestimos")
 Banco = Annotated[Session, Depends(get_db, scope="function")]
 Servicos = Annotated[ServicosRemotos, Depends(obter_servicos_remotos)]
@@ -206,3 +208,16 @@ def devolver_emprestimo(
         central.publicar, "emprestimo.devolvido", EmprestimoResponse.model_validate(resposta)
     )
     return resposta
+
+
+@router.post("/reconciliacao", summary="Verificar e liberar exemplares presos (V5)")
+def executar_reconciliacao(db: Banco, servicos: Servicos) -> dict[str, Any]:
+    return reconciliacao.reconciliar(db, servicos)
+
+
+@router_sistema.get("/health/dependencias", summary="Estado dos disjuntores e da reconciliação (V5)")
+def estado_dependencias(servicos: Servicos) -> dict[str, Any]:
+    return {
+        "disjuntores": servicos.resumo_disjuntores(),
+        "ultima_reconciliacao": reconciliacao.ultima_execucao,
+    }

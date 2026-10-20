@@ -48,6 +48,7 @@ with (
     from backend.servicos.catalogo import app as app_catalogo
     from backend.servicos.emprestimos import app as app_emprestimos
     from backend.servicos.usuarios import app as app_usuarios
+    from backend.resiliencia import Disjuntor
     from backend.servicos_remotos import ServicosRemotos, obter_servicos_remotos
 
 APPS = {"catalogo": app_catalogo, "usuarios": app_usuarios, "emprestimos": app_emprestimos}
@@ -176,7 +177,13 @@ class BancoIsoladoTestCase(unittest.TestCase):
             transport=httpx.MockTransport(self._entregar), timeout=config.TIMEOUT_SERVICOS
         )
         self.addCleanup(cliente.close)
-        self.servicos = ServicosRemotos(cliente)
+        self.esperas: list[float] = []  # V5: esperas entre tentativas, sem dormir de verdade
+        self.relogio = 0.0  # relógio controlável dos disjuntores (avance com self.avancar_relogio)
+        self.disjuntores = {
+            nome: Disjuntor(nome, limite_falhas=3, segundos_aberto=30, relogio=lambda: self.relogio)
+            for nome in ("Usuários", "Catálogo")
+        }
+        self.servicos = ServicosRemotos(cliente, self.disjuntores, dormir=self.esperas.append)
         app_emprestimos.dependency_overrides[obter_servicos_remotos] = lambda: self.servicos
         self.addCleanup(app_emprestimos.dependency_overrides.clear)
 
@@ -202,6 +209,9 @@ class BancoIsoladoTestCase(unittest.TestCase):
             )
         )
         return httpx.Response(resposta.status_code, headers=resposta.headers, content=resposta.body)
+
+    def avancar_relogio(self, segundos: float) -> None:
+        self.relogio += segundos
 
     def simular_falha(self, trecho: str, erro: Exception) -> None:
         self.falhas.append((trecho, erro))

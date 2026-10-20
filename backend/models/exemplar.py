@@ -53,6 +53,11 @@ class Exemplar(Base):
     criado_em: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+    # V5: momento da última mudança de status (retirada ou liberação). A reconciliação
+    # usa isso para não mexer em exemplares que podem estar no meio de um empréstimo.
+    alterado_em: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
 
     livro: Mapped[Livro] = relationship(back_populates="exemplares", lazy="raise")
 

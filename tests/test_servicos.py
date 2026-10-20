@@ -125,7 +125,12 @@ class ComunicacaoEntreServicosTestes(BancoIsoladoTestCase):
         self.assertEqual(self.requisicao("GET", f"/emprestimos/{emprestimo['id']}").json()["status"], "ATIVO")
         self.assertEqual(self.status_exemplar(exemplar), "EMPRESTADO")
 
-        self.falhas.clear()  # o Catálogo voltou
+        self.falhas.clear()  # o Catálogo voltou...
+        # ...mas, após 3 falhas seguidas, o disjuntor abriu (V5): por 30 s nem tenta.
+        recusada = self.requisicao("POST", f"/emprestimos/{emprestimo['id']}/devolucao")
+        self.assertEqual(recusada.status_code, 503)
+        self.assertIn("Nova tentativa em", recusada.json()["detail"])
+        self.avancar_relogio(31)
         devolucao = self.requisicao("POST", f"/emprestimos/{emprestimo['id']}/devolucao")
         self.assertEqual(devolucao.status_code, 200)
         self.assertEqual(self.status_exemplar(exemplar), "DISPONIVEL")

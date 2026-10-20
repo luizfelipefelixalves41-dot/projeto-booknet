@@ -15,16 +15,22 @@ from backend.eventos import CentralDeEventos
 from backend.eventos import router as eventos_router
 from backend.origens import ORIGENS_PERMITIDAS, REGEX_REDE_LOCAL
 
-VERSAO = "V3"
+VERSAO = "V5"
 
 
 def criar_servico(
-    nome: str, titulo: str, descricao: str, routers: list[APIRouter], tags: list[dict]
+    nome: str,
+    titulo: str,
+    descricao: str,
+    routers: list[APIRouter],
+    tags: list[dict],
+    lifespan=None,
 ) -> FastAPI:
     app = FastAPI(
         title=f"BookNet · {titulo}",
         description=descricao,
-        version="3.0.0",
+        version="5.0.0",
+        lifespan=lifespan,
         openapi_tags=[
             {"name": "Sistema", "description": "Identificação e verificações de saúde."},
             *tags,

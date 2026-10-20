@@ -32,3 +32,24 @@ if TOKEN_INTERNO == TOKEN_PADRAO_DESENVOLVIMENTO:
     logging.getLogger("booknet.config").warning(
         "BOOKNET_TOKEN_INTERNO não definido: usando o token padrão de desenvolvimento."
     )
+
+# V5: novas tentativas e disjuntor nas chamadas entre serviços.
+TENTATIVAS_SERVICOS = int(os.getenv("BOOKNET_TENTATIVAS_SERVICOS", "3"))
+ESPERA_BASE_SEGUNDOS = float(os.getenv("BOOKNET_ESPERA_BASE_SEGUNDOS", "0.3"))
+DISJUNTOR_LIMITE_FALHAS = int(os.getenv("BOOKNET_DISJUNTOR_LIMITE_FALHAS", "3"))
+DISJUNTOR_SEGUNDOS_ABERTO = float(os.getenv("BOOKNET_DISJUNTOR_SEGUNDOS_ABERTO", "30"))
+
+# V5: reconciliação periódica de exemplares presos (0 desliga a execução automática).
+RECONCILIACAO_INTERVALO_SEGUNDOS = int(os.getenv("BOOKNET_RECONCILIACAO_INTERVALO_SEGUNDOS", "300"))
+# Exemplares alterados há menos tempo que isto podem estar no meio de um empréstimo.
+RECONCILIACAO_CARENCIA_SEGUNDOS = int(os.getenv("BOOKNET_RECONCILIACAO_CARENCIA_SEGUNDOS", "120"))
+
+# Login: segredo que assina os tokens de sessão. Precisa ser o mesmo nos três
+# serviços, porque cada um confere o token sozinho. Defina outro no .env.
+SEGREDO_PADRAO_DESENVOLVIMENTO = "booknet-sessao-desenvolvimento"
+SEGREDO_SESSAO = os.getenv("BOOKNET_SEGREDO_SESSAO", SEGREDO_PADRAO_DESENVOLVIMENTO)
+if SEGREDO_SESSAO == SEGREDO_PADRAO_DESENVOLVIMENTO:
+    logging.getLogger("booknet.config").warning(
+        "BOOKNET_SEGREDO_SESSAO não definido: usando o segredo padrão de desenvolvimento."
+    )
+SESSAO_VALIDADE_HORAS = float(os.getenv("BOOKNET_SESSAO_VALIDADE_HORAS", "8"))

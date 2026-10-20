@@ -200,12 +200,12 @@ class EventosTestes(BancoIsoladoTestCase):
         self.assertEqual(nova.total, 1)
         self.assertEqual(saudavel.recebidas[0]["dados"], {"n": 1})
 
-    def test_servicos_identificam_versao_3(self):
+    def test_servicos_identificam_versao_5(self):
         for nome in APPS:
             with self.subTest(servico=nome):
                 documento = self.requisicao("GET", "/openapi.json", servico=nome).json()
-                self.assertEqual(documento["info"]["version"], "3.0.0")
-                self.assertEqual(self.requisicao("GET", "/", servico=nome).json()["versao"], "V3")
+                self.assertEqual(documento["info"]["version"], "5.0.0")
+                self.assertEqual(self.requisicao("GET", "/", servico=nome).json()["versao"], "V5")
 
 if __name__ == "__main__":
     unittest.main()

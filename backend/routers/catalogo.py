@@ -1,10 +1,11 @@
 """Operações iniciais do catálogo, sem exclusão de registros."""
 
 import logging
+from datetime import datetime, timedelta, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Path, Query, status
-from sqlalchemy import or_, select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.orm import Session
 
 from backend.dependencies.database import get_db
@@ -148,7 +149,7 @@ def retirar_exemplar(exemplar_id: Annotated[int, Path(gt=0)], db: Banco) -> dict
     retirada = db.execute(
         update(Exemplar)
         .where(Exemplar.id == exemplar_id, Exemplar.status == StatusExemplar.DISPONIVEL)
-        .values(status=StatusExemplar.EMPRESTADO)
+        .values(status=StatusExemplar.EMPRESTADO, alterado_em=func.now())
     )
     if retirada.rowcount != 1:
         raise HTTPException(status_code=409, detail="Exemplar não está disponível.")
@@ -169,10 +170,29 @@ def liberar_exemplar(exemplar_id: Annotated[int, Path(gt=0)], db: Banco) -> Exem
     exemplar = _buscar_exemplar(db, exemplar_id)
     db.execute(
         update(Exemplar)
-        .where(Exemplar.id == exemplar_id)
-        .values(status=StatusExemplar.DISPONIVEL)
+        .where(Exemplar.id == exemplar_id, Exemplar.status == StatusExemplar.EMPRESTADO)
+        .values(status=StatusExemplar.DISPONIVEL, alterado_em=func.now())
     )
     db.commit()
     db.refresh(exemplar)
     logger.info("Exemplar liberado. id=%s", exemplar_id)
     return exemplar
+
+
+@router_interno.get(
+    "/emprestados",
+    response_model=list[ExemplarResponse],
+    summary="Listar exemplares emprestados (usado pela reconciliação)",
+)
+def listar_emprestados(
+    db: Banco, alterados_ha_segundos: Annotated[int, Query(ge=0, le=86400)] = 0
+) -> list[Exemplar]:
+    """Só devolve exemplares que estão EMPRESTADO há pelo menos ``alterados_ha_segundos``:
+    os mais recentes podem pertencer a um empréstimo que ainda está sendo gravado."""
+    limite = datetime.now(timezone.utc) - timedelta(seconds=alterados_ha_segundos)
+    consulta = (
+        select(Exemplar)
+        .where(Exemplar.status == StatusExemplar.EMPRESTADO, Exemplar.alterado_em <= limite)
+        .order_by(Exemplar.id)
+    )
+    return list(db.scalars(consulta).all())
