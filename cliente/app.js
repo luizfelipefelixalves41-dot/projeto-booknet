@@ -101,6 +101,38 @@ function corDaCapa(texto) {
 
 const capa = (titulo) => el("div", { class: "capa", style: `background:${corDaCapa(titulo)}`, "aria-hidden": "true" }, iniciais(titulo));
 
+/* ------------------------------- temas ------------------------------- */
+
+const TEMAS = [
+  { chave: "noite", nome: "Noite: preto, roxo e dourado", cor: "#09080d" },
+  { chave: "dia", nome: "Dia: claro, roxo e dourado", cor: "#f6f4fb" },
+  { chave: "classico", nome: "Clássico: verde original do BookNet", cor: "#0f3d2e" },
+];
+
+function aplicarTema(chave) {
+  document.documentElement.dataset.tema = chave;
+  const tema = TEMAS.find((t) => t.chave === chave);
+  document.querySelector('meta[name="theme-color"]').setAttribute("content", tema.cor);
+  try {
+    localStorage.setItem("booknet.tema", chave);
+  } catch {
+    // sem armazenamento: o tema vale só até fechar a página
+  }
+  for (const botao of $$("[data-seletor-tema] button")) botao.setAttribute("aria-checked", String(botao.dataset.tema === chave));
+}
+
+function montarSeletoresTema() {
+  const atual = document.documentElement.dataset.tema || "noite";
+  for (const seletor of $$("[data-seletor-tema]")) {
+    seletor.setAttribute("role", "radiogroup");
+    seletor.setAttribute("aria-label", "Tema de cores");
+    seletor.replaceChildren(...TEMAS.map((tema) => el("button", {
+      type: "button", role: "radio", class: `amostra-${tema.chave}`, title: tema.nome, "aria-label": tema.nome,
+      "data-tema": tema.chave, "aria-checked": String(tema.chave === atual), onclick: () => aplicarTema(tema.chave),
+    })));
+  }
+}
+
 /* ------------------------------ sessão ------------------------------ */
 
 const CHAVE_SESSAO = "booknet.sessao";
@@ -857,6 +889,7 @@ document.addEventListener("DOMContentLoaded", () => {
   $("#form-emprestimo").addEventListener("submit", criarEmprestimo);
   $("#botao-reconciliar").addEventListener("click", executarReconciliacao);
 
+  montarSeletoresTema();
   escolherPerfil("ALUNO");
   sessao = lerSessaoSalva();
   if (sessao) iniciarApp();

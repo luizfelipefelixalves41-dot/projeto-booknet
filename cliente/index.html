@@ -4,7 +4,12 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="BookNet — biblioteca universitária: acervo, empréstimos e devoluções em tempo real.">
-  <meta name="theme-color" content="#0f3d2e">
+  <meta name="theme-color" content="#09080d">
+  <script>
+    // Aplica o tema salvo antes de desenhar a página (evita piscar o tema errado).
+    try { document.documentElement.dataset.tema = localStorage.getItem("booknet.tema") || "noite"; }
+    catch (e) { document.documentElement.dataset.tema = "noite"; }
+  </script>
   <title>BookNet · Biblioteca Universitária</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23176b52'/%3E%3Cpath d='M9 8h9a5 5 0 0 1 0 10h-9zM9 18h10a5 5 0 0 1 0 10H9z' fill='none' stroke='white' stroke-width='3'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="style.css">
@@ -32,7 +37,7 @@
         <span>booknet<small>BIBLIOTECA UNIVERSITÁRIA</small></span>
       </div>
       <div class="login-chamada">
-        <h1>Sua biblioteca,<br>conectada.</h1>
+        <h1>Sua biblioteca,<br><em>conectada.</em></h1>
         <p>Pesquise o acervo, pegue livros emprestados e acompanhe tudo em tempo real, de qualquer lugar.</p>
         <ul class="login-recursos">
           <li><svg class="icone"><use href="#i-raio"/></svg>Disponibilidade atualizada ao vivo</li>
@@ -45,6 +50,7 @@
     </div>
 
     <div class="login-painel">
+      <div class="login-tema"><span>Tema</span><div class="seletor-tema" data-seletor-tema></div></div>
       <div class="login-cartao">
         <h2>Entrar</h2>
         <p class="suave">Escolha o seu perfil e use a sua matrícula.</p>
@@ -86,6 +92,7 @@
       </div>
       <nav class="abas" id="abas" aria-label="Seções"></nav>
       <div class="topo-direita">
+        <div class="seletor-tema" data-seletor-tema></div>
         <div class="status-grupo" id="status-servicos" role="status" aria-label="Estado dos serviços"></div>
         <span class="status" id="status-ws" title="Canal de eventos em tempo real"><span class="ponto"></span><span class="status-texto">Conectando…</span></span>
         <div class="usuario-chip">
