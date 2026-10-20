@@ -424,6 +424,12 @@ const kpi = (titulo, valor, detalhe, classe = "") =>
   el("div", { class: `kpi ${classe}` }, el("small", {}, titulo), el("strong", {}, String(valor)), el("span", {}, detalhe));
 
 async function carregarPainel() {
+  if (!$("#kpis").children.length) {
+    $("#kpis").replaceChildren(
+      ...["Livros no acervo", "Exemplares disponíveis", "Empréstimos ativos", "Atrasados"].map((titulo, i) =>
+        kpi(titulo, "…", "carregando", i === 0 ? "destaque" : "")));
+  }
+  desenharSaude(); // em paralelo com os números
   try {
     const [livros, ativos, atrasados] = await Promise.all([
       api("GET", "/livros?limit=100"),
@@ -441,22 +447,26 @@ async function carregarPainel() {
   } catch (erro) {
     $("#kpis").replaceChildren(vazio(erro.message));
   }
-  desenharSaude();
 }
 
 let dependencias = null;
 
 async function desenharSaude() {
+  desenharLinhasSaude(); // mostra já o que se sabe; os disjuntores chegam em seguida
   try {
     dependencias = await api("GET", "/health/dependencias");
   } catch {
     dependencias = null;
   }
+  desenharLinhasSaude();
+}
+
+function desenharLinhasSaude() {
   const linhas = Object.values(SERVICOS).map((s) => {
     const estado = estadoServicos[s.chave];
     return el("div", { class: "saude-linha" },
       el("span", {}, el("b", {}, `Serviço de ${s.nome}`), el("span", { class: "dica" }, ` · ${s.onde}`)),
-      el("span", { class: `selo ${estado && estado.estado === "ok" ? "" : "perigo"}` }, estado ? estado.detalhe : "verificando"));
+      el("span", { class: `selo ${!estado ? "neutro" : estado.estado === "ok" ? "" : "perigo"}` }, estado ? estado.detalhe : "verificando…"));
   });
   if (dependencias) {
     for (const [nome, d] of Object.entries(dependencias.disjuntores)) {
