@@ -3,150 +3,234 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="BookNet — Cliente Web da biblioteca universitária: acervo, usuários, empréstimos e devoluções.">
-  <meta name="theme-color" content="#176b52">
-  <title>BookNet · Biblioteca</title>
-  <link rel="icon" href="data:,">
+  <meta name="description" content="BookNet — biblioteca universitária: acervo, empréstimos e devoluções em tempo real.">
+  <meta name="theme-color" content="#0f3d2e">
+  <title>BookNet · Biblioteca Universitária</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23176b52'/%3E%3Cpath d='M9 8h9a5 5 0 0 1 0 10h-9zM9 18h10a5 5 0 0 1 0 10H9z' fill='none' stroke='white' stroke-width='3'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="style.css">
   <script src="config.js" defer></script>
   <script src="app.js" defer></script>
 </head>
 <body>
-  <header class="topbar">
-    <div class="brand">
-      <span class="brand-mark" aria-hidden="true">B</span>
-      <span>booknet<small>CLIENTE WEB · V4</small></span>
-    </div>
-    <nav class="tabs" aria-label="Seções">
-      <button class="tab is-active" data-tab="acervo" type="button">Acervo</button>
-      <button class="tab" data-tab="usuarios" type="button">Usuários</button>
-      <button class="tab" data-tab="emprestimos" type="button">Empréstimos</button>
-    </nav>
-    <div class="status-group">
-      <div class="status" id="status-ws" role="status" title="Canal WebSocket de eventos em tempo real">
-        <span class="dot"></span><span class="status-text">Conectando…</span>
-      </div>
-      <div class="status-group" id="status-servicos" role="status" aria-label="Estado dos serviços">
-        <span class="status"><span class="dot"></span><span class="status-text">Verificando serviços…</span></span>
-      </div>
-    </div>
-  </header>
+  <svg class="icones" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <symbol id="i-livro" viewBox="0 0 24 24"><path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2zm0 16a2 2 0 0 1 2-2h13v2H6a2 2 0 0 1-2-2M8 7h7"/></symbol>
+    <symbol id="i-aluno" viewBox="0 0 24 24"><path d="m2 9 10-5 10 5-10 5zm4 2.5V16c0 1.5 3 3 6 3s6-1.5 6-3v-4.5M22 9v6"/></symbol>
+    <symbol id="i-escudo" viewBox="0 0 24 24"><path d="M12 3 4 6v6c0 4.5 3.4 8.3 8 9 4.6-.7 8-4.5 8-9V6zm-3 9 2 2 4-4"/></symbol>
+    <symbol id="i-sair" viewBox="0 0 24 24"><path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3M10 17l5-5-5-5M15 12H4"/></symbol>
+    <symbol id="i-busca" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></symbol>
+    <symbol id="i-olho" viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12"/><circle cx="12" cy="12" r="3"/></symbol>
+    <symbol id="i-raio" viewBox="0 0 24 24"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></symbol>
+    <symbol id="i-rede" viewBox="0 0 24 24"><rect x="9" y="2" width="6" height="5" rx="1"/><rect x="2" y="17" width="6" height="5" rx="1"/><rect x="16" y="17" width="6" height="5" rx="1"/><path d="M12 7v5M5 17v-5h14v5"/></symbol>
+    <symbol id="i-relogio" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+  </svg>
 
-  <div class="aviso-nuvem" id="aviso-nuvem" role="status" hidden>
-    <span class="spinner" aria-hidden="true"></span>
-    Acordando os serviços na nuvem… No plano gratuito, serviços sem uso dormem e levam até 1 minuto para voltar. A página continua sozinha.
+  <!-- ===================== LOGIN ===================== -->
+  <section class="login" id="tela-login" hidden>
+    <div class="login-arte">
+      <div class="marca marca-clara">
+        <span class="marca-icone"><svg class="icone"><use href="#i-livro"/></svg></span>
+        <span>booknet<small>BIBLIOTECA UNIVERSITÁRIA</small></span>
+      </div>
+      <div class="login-chamada">
+        <h1>Sua biblioteca,<br>conectada.</h1>
+        <p>Pesquise o acervo, pegue livros emprestados e acompanhe tudo em tempo real, de qualquer lugar.</p>
+        <ul class="login-recursos">
+          <li><svg class="icone"><use href="#i-raio"/></svg>Disponibilidade atualizada ao vivo</li>
+          <li><svg class="icone"><use href="#i-livro"/></svg>Empréstimo em um clique</li>
+          <li><svg class="icone"><use href="#i-rede"/></svg>Três serviços distribuídos na nuvem</li>
+        </ul>
+      </div>
+      <p class="login-rodape">Projeto de Sistemas Distribuídos · André · João Henrique · Luiz Felipe</p>
+      <div class="livros-deco" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+    </div>
+
+    <div class="login-painel">
+      <div class="login-cartao">
+        <h2>Entrar</h2>
+        <p class="suave">Escolha o seu perfil e use a sua matrícula.</p>
+
+        <div class="perfis" role="tablist" aria-label="Perfil de acesso">
+          <button type="button" class="perfil is-ativo" role="tab" aria-selected="true" data-perfil="ALUNO">
+            <svg class="icone"><use href="#i-aluno"/></svg><span><b>Aluno</b><small>Empréstimos e acervo</small></span>
+          </button>
+          <button type="button" class="perfil" role="tab" aria-selected="false" data-perfil="BIBLIOTECARIO">
+            <svg class="icone"><use href="#i-escudo"/></svg><span><b>Bibliotecário</b><small>Administração</small></span>
+          </button>
+        </div>
+
+        <form id="form-login" novalidate>
+          <label>Matrícula
+            <input name="matricula" autocomplete="username" required placeholder="Ex.: 2026001">
+          </label>
+          <label>Senha
+            <span class="campo-senha">
+              <input name="senha" type="password" autocomplete="current-password" required placeholder="Sua senha">
+              <button type="button" class="mostrar-senha" aria-label="Mostrar senha" title="Mostrar senha"><svg class="icone"><use href="#i-olho"/></svg></button>
+            </span>
+          </label>
+          <p class="erro-login" id="erro-login" role="alert" hidden></p>
+          <button type="submit" class="botao primario largo" id="botao-entrar">Entrar como aluno</button>
+        </form>
+        <p class="login-ajuda" id="login-ajuda">Ainda não tem senha? Procure a biblioteca para ativar o seu acesso.</p>
+        <div class="login-servicos" id="login-servicos" role="status"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== APLICAÇÃO ===================== -->
+  <div id="tela-app" hidden>
+    <header class="topo">
+      <div class="marca">
+        <span class="marca-icone"><svg class="icone"><use href="#i-livro"/></svg></span>
+        <span>booknet<small id="marca-perfil">BIBLIOTECA</small></span>
+      </div>
+      <nav class="abas" id="abas" aria-label="Seções"></nav>
+      <div class="topo-direita">
+        <div class="status-grupo" id="status-servicos" role="status" aria-label="Estado dos serviços"></div>
+        <span class="status" id="status-ws" title="Canal de eventos em tempo real"><span class="ponto"></span><span class="status-texto">Conectando…</span></span>
+        <div class="usuario-chip">
+          <span class="avatar" id="avatar" aria-hidden="true"></span>
+          <span class="usuario-dados"><b id="usuario-nome"></b><small id="usuario-papel"></small></span>
+          <button type="button" class="botao-icone" id="botao-sair" title="Sair" aria-label="Sair"><svg class="icone"><use href="#i-sair"/></svg></button>
+        </div>
+      </div>
+    </header>
+
+    <div class="aviso-nuvem" id="aviso-nuvem" role="status" hidden>
+      <span class="spinner" aria-hidden="true"></span>
+      Acordando os serviços na nuvem… No plano gratuito, serviços sem uso dormem e levam até 1 minuto para voltar. A página continua sozinha.
+    </div>
+
+    <main>
+      <!-- Painel do bibliotecário -->
+      <section class="painel" id="aba-painel" hidden>
+        <div class="cabecalho-painel">
+          <div><p class="sobretitulo" id="saudacao">Olá</p><h1>Painel da biblioteca</h1></div>
+        </div>
+        <div class="kpis" id="kpis"></div>
+        <div class="grade-2">
+          <article class="cartao">
+            <div class="cartao-titulo"><h2>Ao vivo</h2><span class="etiqueta">WebSocket</span></div>
+            <p class="dica">Movimentos de qualquer computador, assim que acontecem.</p>
+            <ol class="feed" id="feed-eventos"><li class="vazio-feed">Nenhum evento ainda.</li></ol>
+          </article>
+          <article class="cartao">
+            <div class="cartao-titulo"><h2>Saúde do sistema</h2><span class="etiqueta">V5</span></div>
+            <div id="saude-sistema" class="saude"></div>
+            <div class="acoes"><button type="button" class="botao" id="botao-reconciliar">Verificar exemplares presos</button></div>
+            <p class="dica" id="resultado-reconciliacao"></p>
+          </article>
+        </div>
+      </section>
+
+      <!-- Acervo (os dois perfis) -->
+      <section class="painel" id="aba-acervo" hidden>
+        <div class="cabecalho-painel">
+          <div><p class="sobretitulo">Catálogo</p><h1>Acervo</h1><p class="suave" id="acervo-sub">Pesquise livros e veja a disponibilidade de cada exemplar.</p></div>
+          <form class="busca" id="busca-livros" role="search">
+            <svg class="icone"><use href="#i-busca"/></svg>
+            <input type="search" name="q" placeholder="Título, autor ou ISBN" aria-label="Pesquisar livros">
+            <button type="submit" class="botao primario">Pesquisar</button>
+          </form>
+        </div>
+        <div class="layout">
+          <div id="lista-livros" class="lista" aria-live="polite"></div>
+          <aside class="cartao formulario somente-biblio">
+            <h2 id="titulo-form-livro">Novo livro</h2>
+            <form id="form-livro">
+              <input type="hidden" name="registro_id">
+              <label>Título<input name="titulo" required maxlength="255"></label>
+              <label>Autor<input name="autor" required maxlength="255"></label>
+              <label>ISBN<input name="isbn" required maxlength="20"></label>
+              <label class="marcar"><input type="checkbox" name="ativo" checked> Ativo no acervo</label>
+              <div class="acoes">
+                <button type="submit" class="botao primario">Salvar livro</button>
+                <button type="button" class="botao" id="cancelar-livro" hidden>Cancelar</button>
+              </div>
+            </form>
+          </aside>
+        </div>
+      </section>
+
+      <!-- Meus empréstimos (aluno) -->
+      <section class="painel" id="aba-meus" hidden>
+        <div class="cabecalho-painel">
+          <div><p class="sobretitulo">Minha conta</p><h1>Meus empréstimos</h1><p class="suave">Até 3 livros ao mesmo tempo. Devolva no prazo para continuar pegando livros.</p></div>
+        </div>
+        <div class="kpis kpis-3" id="kpis-aluno"></div>
+        <div id="lista-meus" class="lista" aria-live="polite"></div>
+      </section>
+
+      <!-- Usuários (bibliotecário) -->
+      <section class="painel" id="aba-usuarios" hidden>
+        <div class="cabecalho-painel">
+          <div><p class="sobretitulo">Administração</p><h1>Usuários</h1><p class="suave">Alunos e bibliotecários. Defina uma senha para liberar o acesso.</p></div>
+          <form class="busca" id="busca-usuarios" role="search">
+            <svg class="icone"><use href="#i-busca"/></svg>
+            <input type="search" name="q" placeholder="Nome, e-mail ou matrícula" aria-label="Pesquisar usuários">
+            <select name="tipo" aria-label="Tipo de usuário">
+              <option value="">Todos</option>
+              <option value="ALUNO">Alunos</option>
+              <option value="BIBLIOTECARIO">Bibliotecários</option>
+            </select>
+            <button type="submit" class="botao primario">Pesquisar</button>
+          </form>
+        </div>
+        <div class="layout">
+          <div id="lista-usuarios" class="lista" aria-live="polite"></div>
+          <aside class="cartao formulario">
+            <h2 id="titulo-form-usuario">Novo usuário</h2>
+            <form id="form-usuario">
+              <input type="hidden" name="registro_id">
+              <label>Nome<input name="nome" required maxlength="255"></label>
+              <label>E-mail<input name="email" type="email" required maxlength="255"></label>
+              <label>Matrícula<input name="matricula" required maxlength="30"></label>
+              <label>Tipo
+                <select name="tipo">
+                  <option value="ALUNO">Aluno</option>
+                  <option value="BIBLIOTECARIO">Bibliotecário</option>
+                </select>
+              </label>
+              <label>Senha <span class="suave" id="dica-senha">(mínimo de 6 caracteres)</span>
+                <input name="senha" type="password" minlength="6" maxlength="128" autocomplete="new-password">
+              </label>
+              <label class="marcar"><input type="checkbox" name="ativo" checked> Ativo</label>
+              <div class="acoes">
+                <button type="submit" class="botao primario">Salvar usuário</button>
+                <button type="button" class="botao" id="cancelar-usuario" hidden>Cancelar</button>
+              </div>
+            </form>
+          </aside>
+        </div>
+      </section>
+
+      <!-- Empréstimos (bibliotecário) -->
+      <section class="painel" id="aba-emprestimos" hidden>
+        <div class="cabecalho-painel">
+          <div><p class="sobretitulo">Circulação</p><h1>Empréstimos</h1><p class="suave">Registre retiradas e devoluções. Limite de 3 empréstimos ativos por usuário.</p></div>
+          <div class="filtros" role="group" aria-label="Filtrar empréstimos">
+            <button type="button" class="chip is-ativo" data-filtro="">Todos</button>
+            <button type="button" class="chip" data-filtro="status=ATIVO">Ativos</button>
+            <button type="button" class="chip" data-filtro="atrasados=true">Atrasados</button>
+            <button type="button" class="chip" data-filtro="status=DEVOLVIDO">Devolvidos</button>
+          </div>
+        </div>
+        <div class="layout">
+          <div id="lista-emprestimos" class="lista" aria-live="polite"></div>
+          <aside class="cartao formulario">
+            <h2>Novo empréstimo</h2>
+            <form id="form-emprestimo">
+              <label>Usuário<select name="usuario_id" required id="select-usuario"></select></label>
+              <label>ID do exemplar<input name="exemplar_id" type="number" min="1" required></label>
+              <p class="dica" id="info-exemplar">Dica: use o botão “Emprestar” no Acervo.</p>
+              <label>Prazo (dias)<input name="prazo_dias" type="number" min="1" max="60" value="14" required></label>
+              <div class="acoes"><button type="submit" class="botao primario">Registrar empréstimo</button></div>
+            </form>
+          </aside>
+        </div>
+      </section>
+    </main>
   </div>
-
-  <main>
-    <!-- ACERVO -->
-    <section class="panel" id="tab-acervo">
-      <div class="panel-head">
-        <div>
-          <h1>Acervo</h1>
-          <p class="muted">Pesquise livros e verifique a disponibilidade de cada exemplar.</p>
-        </div>
-        <form class="search" id="busca-livros" role="search">
-          <input type="search" name="q" placeholder="Título, autor ou ISBN" aria-label="Pesquisar livros">
-          <button type="submit">Pesquisar</button>
-        </form>
-      </div>
-      <div class="layout">
-        <div id="lista-livros" class="list" aria-live="polite"></div>
-        <aside class="card form-card">
-          <h2 id="titulo-form-livro">Novo livro</h2>
-          <form id="form-livro">
-            <input type="hidden" name="registro_id">
-            <label>Título<input name="titulo" required maxlength="255"></label>
-            <label>Autor<input name="autor" required maxlength="255"></label>
-            <label>ISBN<input name="isbn" required maxlength="20"></label>
-            <label class="check"><input type="checkbox" name="ativo" checked> Ativo no acervo</label>
-            <div class="actions">
-              <button type="submit" class="primary">Salvar livro</button>
-              <button type="button" class="ghost" id="cancelar-livro" hidden>Cancelar</button>
-            </div>
-          </form>
-        </aside>
-      </div>
-    </section>
-
-    <!-- USUÁRIOS -->
-    <section class="panel" id="tab-usuarios" hidden>
-      <div class="panel-head">
-        <div>
-          <h1>Usuários</h1>
-          <p class="muted">Alunos e bibliotecários cadastrados.</p>
-        </div>
-        <form class="search" id="busca-usuarios" role="search">
-          <input type="search" name="q" placeholder="Nome, e-mail ou matrícula" aria-label="Pesquisar usuários">
-          <select name="tipo" aria-label="Tipo de usuário">
-            <option value="">Todos</option>
-            <option value="ALUNO">Alunos</option>
-            <option value="BIBLIOTECARIO">Bibliotecários</option>
-          </select>
-          <button type="submit">Pesquisar</button>
-        </form>
-      </div>
-      <div class="layout">
-        <div id="lista-usuarios" class="list" aria-live="polite"></div>
-        <aside class="card form-card">
-          <h2 id="titulo-form-usuario">Novo usuário</h2>
-          <form id="form-usuario">
-            <input type="hidden" name="registro_id">
-            <label>Nome<input name="nome" required maxlength="255"></label>
-            <label>E-mail<input name="email" type="email" required maxlength="255"></label>
-            <label>Matrícula<input name="matricula" required maxlength="30"></label>
-            <label>Tipo
-              <select name="tipo">
-                <option value="ALUNO">Aluno</option>
-                <option value="BIBLIOTECARIO">Bibliotecário</option>
-              </select>
-            </label>
-            <label class="check"><input type="checkbox" name="ativo" checked> Ativo</label>
-            <div class="actions">
-              <button type="submit" class="primary">Salvar usuário</button>
-              <button type="button" class="ghost" id="cancelar-usuario" hidden>Cancelar</button>
-            </div>
-          </form>
-        </aside>
-      </div>
-    </section>
-
-    <!-- EMPRÉSTIMOS -->
-    <section class="panel" id="tab-emprestimos" hidden>
-      <div class="panel-head">
-        <div>
-          <h1>Empréstimos</h1>
-          <p class="muted">Registre retiradas e devoluções. Limite de 3 empréstimos ativos por usuário.</p>
-        </div>
-        <div class="filters" role="group" aria-label="Filtrar empréstimos">
-          <button type="button" class="chip is-active" data-filtro="">Todos</button>
-          <button type="button" class="chip" data-filtro="status=ATIVO">Ativos</button>
-          <button type="button" class="chip" data-filtro="atrasados=true">Atrasados</button>
-          <button type="button" class="chip" data-filtro="status=DEVOLVIDO">Devolvidos</button>
-        </div>
-      </div>
-      <div class="layout">
-        <div id="lista-emprestimos" class="list" aria-live="polite"></div>
-        <div class="aside-stack">
-        <aside class="card form-card">
-          <h2>Novo empréstimo</h2>
-          <form id="form-emprestimo">
-            <label>Usuário<select name="usuario_id" required id="select-usuario"></select></label>
-            <label>ID do exemplar<input name="exemplar_id" type="number" min="1" required></label>
-            <p class="hint" id="info-exemplar">Dica: use o botão “Emprestar” no Acervo.</p>
-            <label>Prazo (dias)<input name="prazo_dias" type="number" min="1" max="60" value="14" required></label>
-            <div class="actions"><button type="submit" class="primary">Registrar empréstimo</button></div>
-          </form>
-        </aside>
-        <aside class="card">
-          <h2>Ao vivo</h2>
-          <p class="hint">Mensagens recebidas pelo WebSocket, vindas de qualquer computador.</p>
-          <ol id="feed-eventos" class="feed"><li class="item-meta">Nenhum evento ainda.</li></ol>
-        </aside>
-        </div>
-      </div>
-    </section>
-  </main>
 
   <div class="toasts" id="toasts" aria-live="assertive"></div>
 </body>

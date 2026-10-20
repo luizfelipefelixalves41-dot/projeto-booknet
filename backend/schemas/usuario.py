@@ -26,6 +26,8 @@ TextoEmail = Annotated[
 TextoMatricula = Annotated[
     str, StringConstraints(strict=True, strip_whitespace=True, min_length=1, max_length=30)
 ]
+# Senha de login: mínimo de 6 caracteres; espaços contam (não são removidos).
+TextoSenha = Annotated[str, StringConstraints(strict=True, min_length=6, max_length=128)]
 
 
 class UsuarioCreate(BaseModel):
@@ -36,10 +38,14 @@ class UsuarioCreate(BaseModel):
     matricula: TextoMatricula
     tipo: TipoUsuario = TipoUsuario.ALUNO
     ativo: bool = True
+    # Opcional: sem senha, o usuário é cadastrado mas ainda não consegue entrar.
+    senha: TextoSenha | None = None
 
 
 class UsuarioUpdate(UsuarioCreate):
-    """PUT substitui os campos editáveis; nome, e-mail e matrícula são obrigatórios."""
+    """PUT substitui os campos editáveis; nome, e-mail e matrícula são obrigatórios.
+
+    ``senha`` omitida mantém a senha atual; informada, define uma nova."""
 
 
 class UsuarioResponse(BaseModel):
@@ -51,5 +57,21 @@ class UsuarioResponse(BaseModel):
     matricula: str
     tipo: TipoUsuario
     ativo: bool
+    tem_senha: bool
     criado_em: datetime
     atualizado_em: datetime
+
+
+class LoginRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    matricula: TextoMatricula
+    senha: Annotated[str, StringConstraints(strict=True, min_length=1, max_length=128)]
+    # Aba escolhida na tela de login; se não combinar com a conta, o login é recusado.
+    perfil: TipoUsuario | None = None
+
+
+class LoginResponse(BaseModel):
+    token: str
+    expira_em_segundos: int
+    usuario: UsuarioResponse

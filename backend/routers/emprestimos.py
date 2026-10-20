@@ -22,6 +22,11 @@ from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from backend.dependencies.database import get_db
+from backend.dependencies.sessao import (
+    Bibliotecario,
+    SessaoAtual,
+    exigir_dono_ou_bibliotecario,
+)
 from backend import reconciliacao
 from backend.eventos import Central
 from backend.models.emprestimo import Emprestimo, StatusEmprestimo
@@ -88,12 +93,15 @@ def _compensar_retirada(servicos: ServicosRemotos, exemplar_id: int) -> None:
 @router.get("", response_model=list[EmprestimoResponse], summary="Listar empréstimos")
 def listar_emprestimos(
     db: Banco,
+    sessao: SessaoAtual,
     usuario_id: Annotated[int | None, Query(gt=0)] = None,
     status_emprestimo: Annotated[StatusEmprestimo | None, Query(alias="status")] = None,
     atrasados: bool = False,
     skip: Annotated[int, Query(ge=0)] = 0,
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
 ) -> list[dict[str, Any]]:
+    if not sessao.bibliotecario:
+        usuario_id = sessao.usuario_id  # aluno vê só os próprios empréstimos
     consulta = select(Emprestimo)
     if usuario_id is not None:
         consulta = consulta.where(Emprestimo.usuario_id == usuario_id)
@@ -109,8 +117,10 @@ def listar_emprestimos(
 
 
 @router.get("/{emprestimo_id}", response_model=EmprestimoResponse, summary="Consultar empréstimo")
-def consultar_emprestimo(emprestimo_id: EmprestimoId, db: Banco) -> dict[str, Any]:
-    return _montar_resposta(_buscar(db, emprestimo_id))
+def consultar_emprestimo(emprestimo_id: EmprestimoId, db: Banco, sessao: SessaoAtual) -> dict[str, Any]:
+    emprestimo = _buscar(db, emprestimo_id)
+    exigir_dono_ou_bibliotecario(sessao, emprestimo.usuario_id)
+    return _montar_resposta(emprestimo)
 
 
 @router.post(
@@ -125,7 +135,11 @@ def criar_emprestimo(
     servicos: Servicos,
     tarefas: BackgroundTasks,
     central: Central,
+    sessao: SessaoAtual,
 ) -> dict[str, Any]:
+    if not sessao.bibliotecario and dados.usuario_id != sessao.usuario_id:
+        raise HTTPException(status_code=403, detail="Alunos só podem pegar livros para si mesmos.")
+
     # 1. Serviço de Usuários: o usuário existe e está ativo?
     usuario = servicos.buscar_usuario(dados.usuario_id)
     if not usuario["ativo"]:
@@ -173,7 +187,8 @@ def criar_emprestimo(
     logger.info("Empréstimo registrado com sucesso. id=%s", emprestimo.id)
     resposta = _montar_resposta(emprestimo)
     tarefas.add_task(
-        central.publicar, "emprestimo.criado", EmprestimoResponse.model_validate(resposta)
+        central.publicar, "emprestimo.criado", EmprestimoResponse.model_validate(resposta),
+        dono_id=emprestimo.usuario_id,
     )
     return resposta
 
@@ -189,8 +204,10 @@ def devolver_emprestimo(
     servicos: Servicos,
     tarefas: BackgroundTasks,
     central: Central,
+    sessao: SessaoAtual,
 ) -> dict[str, Any]:
     emprestimo = _buscar(db, emprestimo_id)
+    exigir_dono_ou_bibliotecario(sessao, emprestimo.usuario_id)
     devolucao = db.execute(
         update(Emprestimo)
         .where(Emprestimo.id == emprestimo_id, Emprestimo.status == StatusEmprestimo.ATIVO)
@@ -205,13 +222,14 @@ def devolver_emprestimo(
     logger.info("Devolução registrada com sucesso. id=%s", emprestimo_id)
     resposta = _montar_resposta(_buscar(db, emprestimo_id))
     tarefas.add_task(
-        central.publicar, "emprestimo.devolvido", EmprestimoResponse.model_validate(resposta)
+        central.publicar, "emprestimo.devolvido", EmprestimoResponse.model_validate(resposta),
+        dono_id=emprestimo.usuario_id,
     )
     return resposta
 
 
 @router.post("/reconciliacao", summary="Verificar e liberar exemplares presos (V5)")
-def executar_reconciliacao(db: Banco, servicos: Servicos) -> dict[str, Any]:
+def executar_reconciliacao(db: Banco, servicos: Servicos, _: Bibliotecario) -> dict[str, Any]:
     return reconciliacao.reconciliar(db, servicos)
 
 

@@ -16,6 +16,9 @@ envVarGroups:
       # Mesmo segredo para os três serviços: protege as rotas /interno do Catálogo.
       - key: BOOKNET_TOKEN_INTERNO
         generateValue: true
+      # Login: assina os tokens de sessão; os três serviços conferem com o mesmo segredo.
+      - key: BOOKNET_SEGREDO_SESSAO
+        generateValue: true
       # Endereço público do Cliente Web, liberado no CORS e no WebSocket.
       - key: BOOKNET_ORIGENS_EXTRAS
         value: https://booknet-luizfelipe.onrender.com

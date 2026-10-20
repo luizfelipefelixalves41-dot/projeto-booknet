@@ -47,10 +47,10 @@ O objetivo acadêmico é estudar comunicação entre processos e distribuição 
 
 | Perfil | Funcionalidades | Situação |
 | --- | --- | --- |
-| **Aluno** | Pesquisar livros, verificar disponibilidade, solicitar empréstimos, realizar devoluções e consultar seus empréstimos. | Operações disponíveis nos serviços e no Cliente Web. |
-| **Bibliotecário** | Cadastrar e alterar livros e exemplares, consultar usuários e acompanhar empréstimos. | Operações disponíveis nos serviços e no Cliente Web. |
+| **Aluno** | Pesquisar livros, verificar disponibilidade, solicitar empréstimos, realizar devoluções e consultar seus empréstimos. | Implementado, com login: o aluno só pega livros para si e só vê os próprios empréstimos. |
+| **Bibliotecário** | Cadastrar e alterar livros e exemplares, consultar usuários e acompanhar empréstimos. | Implementado, com login de administrador e painel da biblioteca. |
 
-Ainda não há login nem controle de permissões por perfil: qualquer pessoa com acesso ao Cliente Web executa todas as operações. Autenticação está fora do escopo atual.
+Cada perfil entra com matrícula e senha e vê apenas o que lhe cabe. As permissões são conferidas pelos próprios serviços (veja "Login e perfis").
 
 ## Fora do escopo inicial
 
@@ -115,7 +115,11 @@ As regras são garantidas em duas camadas. Os schemas Pydantic validam a entrada
 | todos | `GET` | `/` | Identificação, ex.: `{"projeto":"BookNet","servico":"catalogo","status":"online","versao":"V3"}`. |
 | todos | `GET` | `/health` | Serviço respondendo: `{"status":"ok","servico":"…"}`. |
 | todos | `GET` | `/health/database` | `SELECT 1` no banco: `200 online` ou `503 offline`. |
-| todos | `WS` | `/ws/eventos` | Canal de eventos do serviço (V2). |
+| todos | `WS` | `/ws/eventos?token=…` | Canal de eventos do serviço (V2); exige login. |
+| Usuários | `POST` | `/auth/login` | Entrar: `{"matricula", "senha", "perfil"}` → token de sessão. |
+| Usuários | `GET` | `/auth/eu` | Dados de quem está logado. |
+| Empréstimos | `GET` | `/health/dependencias` | Estado dos disjuntores e da última reconciliação (V5). |
+| Empréstimos | `POST` | `/emprestimos/reconciliacao` | Libera exemplares presos (V5, bibliotecário). |
 | Catálogo | `GET` | `/livros` | Lista livros ativos; `q` pesquisa título, autor e ISBN; paginação `skip`/`limit`. |
 | Catálogo | `GET` | `/livros/{id}` | Consulta um livro (inclusive inativo). |
 | Catálogo | `POST` | `/livros` | Cadastra livro (`201`; `409` se o ISBN já existe). |
@@ -133,6 +137,8 @@ As regras são garantidas em duas camadas. Os schemas Pydantic validam a entrada
 | Empréstimos | `GET` | `/emprestimos/{id}` | Consulta um empréstimo. |
 | Empréstimos | `POST` | `/emprestimos` | Registra empréstimo: `{"usuario_id":1,"exemplar_id":4,"prazo_dias":14}`. |
 | Empréstimos | `POST` | `/emprestimos/{id}/devolucao` | Registra a devolução e libera o exemplar no Catálogo. |
+
+Exceto `/`, `/health`, `/health/database` e `/auth/login`, todas as rotas exigem o cabeçalho `Authorization: Bearer <token>`. As rotas de cadastro e alteração (livros, exemplares, usuários) e a reconciliação exigem perfil de **bibliotecário**. O aluno só acessa os próprios dados e empréstimos.
 
 Documentação interativa de cada serviço: [8001/docs](http://127.0.0.1:8001/docs), [8002/docs](http://127.0.0.1:8002/docs) e [8003/docs](http://127.0.0.1:8003/docs).
 
@@ -155,7 +161,9 @@ O prazo padrão é de 14 dias, configurável de 1 a 60 em `prazo_dias`. Devolver
 | Recurso inexistente | `404`. |
 | Duplicidade ou regra de negócio violada | `409` com mensagem clara (ex.: `E-mail já cadastrado.`). |
 | Outras violações de integridade | `400`. |
-| Rota interna chamada sem o token | `403`. |
+| Sem login ou com sessão expirada | `401`. |
+| Sem permissão (ex.: aluno cadastrando livro) ou rota interna sem o token | `403`. |
+| Muitas senhas erradas | `429`. |
 | Banco ou outro serviço indisponível | `503`. |
 | Outro serviço não respondeu no prazo | `504`. |
 | Erro inesperado | `500` com mensagem genérica. |
@@ -164,7 +172,7 @@ Respostas e logs nunca incluem SQL, traceback, connection string, host, usuário
 
 ## Cliente Web
 
-A pasta `cliente/` contém a interface funcional em HTML, CSS e JavaScript puro, sem dependências. Desde a V3, ela conversa com **três endereços** e escolhe o serviço pelo início da rota: `/usuarios` vai para a porta 8002, `/emprestimos` para a 8003 e o resto para a 8001.
+A pasta `cliente/` contém a interface funcional em HTML, CSS e JavaScript puro, sem dependências. Ela começa pela **tela de login** e depois mostra a área do **aluno** (Acervo e Meus empréstimos) ou do **bibliotecário** (Painel, Acervo, Usuários e Empréstimos). Veja "Login e perfis". Desde a V3, ela conversa com **três endereços** e escolhe o serviço pelo início da rota: `/usuarios` vai para a porta 8002, `/emprestimos` para a 8003 e o resto para a 8001.
 
 | Aba | O que faz |
 | --- | --- |
@@ -358,6 +366,47 @@ Acesse **http://localhost:8080**. As portas 8001 a 8003 e 8080 ficam abertas tam
 | Falha 1 | Com `docker compose stop emprestimos`, o indicador ficou vermelho e o Acervo continuou funcionando no navegador. |
 | Segurança da imagem | Usuário `booknet` (não `root`); `/app` contém só `alembic.ini`, `backend`, `migrations` e `requirements.txt`, sem `.env`. |
 
+## Login e perfis
+
+O sistema abre numa **tela de login** com duas abas, **Aluno** e **Bibliotecário**. A pessoa entra com a **matrícula** e a **senha**, e cada perfil vê um sistema diferente:
+
+| | Aluno | Bibliotecário (administrador) |
+| --- | --- | --- |
+| Abas | Acervo · Meus empréstimos | Painel · Acervo · Usuários · Empréstimos |
+| Acervo | Pesquisa e **"Pegar emprestado"** com um clique (o sistema escolhe um exemplar disponível) | Cadastra e edita livros e exemplares |
+| Empréstimos | Vê e devolve **só os próprios** | Vê todos, registra para qualquer usuário, registra devoluções |
+| Usuários | Vê só os próprios dados | Cadastra alunos e bibliotecários e define senhas |
+| Painel | — | Números do acervo, eventos ao vivo, saúde dos serviços e disjuntores, reconciliação |
+| Avisos ao vivo | Acervo e os próprios empréstimos | Tudo |
+
+### Como funciona (e por que isso é distribuído)
+
+```text
+ 1. Navegador ── POST /auth/login {matrícula, senha} ──▶ Serviço de Usuários
+                                                         confere a senha (hash PBKDF2)
+              ◀──────────────── token de sessão (JWT) ── assina com o segredo compartilhado
+ 2. Navegador ── GET /livros   + "Authorization: Bearer <token>" ──▶ Catálogo     ┐ cada serviço
+    Navegador ── POST /emprestimos + "Authorization: Bearer <token>" ──▶ Empréstimos ┘ confere sozinho
+```
+
+- **Senhas nunca são guardadas.** O banco guarda só o resultado do **PBKDF2-SHA256** com um *sal* aleatório por usuário e 600 mil repetições: rápido para um login, lento demais para quem tentasse adivinhar milhões de senhas. A comparação é feita em tempo constante.
+- **Token de sessão assinado (JWT HS256).** Leva o número do usuário, o nome, o perfil e a validade (8 horas), assinados com `BOOKNET_SEGREDO_SESSAO`. Trocar qualquer letra, por exemplo `ALUNO` por `BIBLIOTECARIO`, invalida a assinatura. Tokens sem assinatura (`"alg": "none"`) também são recusados.
+- **Autenticação sem ponto central.** Os três serviços têm o mesmo segredo, então **cada um confere o token sozinho**, sem perguntar ao Serviço de Usuários a cada pedido. Mesmo com o Serviço de Usuários fora do ar, quem já entrou continua usando o Catálogo e os Empréstimos.
+- **As regras valem nos serviços, não só na tela.** Um aluno que chamar a API direto para cadastrar um livro recebe `403`. Sem login, a resposta é `401`. Só `/health`, `/` e `/auth/login` são públicos.
+- **Freio contra adivinhação.** 5 senhas erradas em 5 minutos bloqueiam aquela matrícula temporariamente (`429`). A mensagem é sempre a mesma ("Matrícula ou senha incorretos"), para não revelar quais matrículas existem.
+- **WebSocket com login.** O canal `/ws/eventos?token=...` recusa conexões sem token válido (código `1008`) e filtra as mensagens: um aluno não recebe os empréstimos dos outros.
+- **Chamadas internas** entre serviços continuam usando o `X-Servico-Token` da V3.
+
+### Primeiro acesso e senhas
+
+Usuários sem senha existem, mas ainda não conseguem entrar (aparecem com o selo **"sem senha"** na aba Usuários). O bibliotecário define ou troca senhas pela tela de Usuários. Para criar o **primeiro** bibliotecário, use o script, que pede a senha sem mostrá-la:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\definir_senha.py BIB-001
+```
+
+As senhas de demonstração **não ficam no repositório**: foram combinadas com o grupo fora do GitHub.
+
 ## V5: Falhas e recuperação
 
 Até a V4, o BookNet **detectava** falhas: respondia `503` ou `504` e mostrava que um serviço tinha caído. Na V5 ele passa a **se recuperar** sozinho. Em sistemas distribuídos, falhas não são exceção, são rotina: a rede oscila, um serviço reinicia, na nuvem gratuita um serviço dorme. O sistema precisa sobreviver a elas.
@@ -492,6 +541,7 @@ Crie o arquivo `.env` na raiz `booknet/` com:
 ```env
 DATABASE_URL=<connection string do Neon>
 BOOKNET_TOKEN_INTERNO=<um texto secreto qualquer, igual para os três serviços>
+BOOKNET_SEGREDO_SESSAO=<outro texto secreto longo, que assina os logins>
 ```
 
 Esse arquivo é ignorado pelo Git e nunca deve ser enviado ao GitHub. Sem `BOOKNET_TOKEN_INTERNO`, os serviços usam um token padrão de desenvolvimento e mostram um aviso.
@@ -570,7 +620,7 @@ Com os serviços rodando:
 .\.venv\Scripts\python.exe scripts\monitor_eventos.py     # painel de eventos dos três serviços
 ```
 
-Os três aceitam o IP do Computador A como argumento (ex.: `scripts\monitor_eventos.py 192.168.0.101`). `popular_dados.py` pode ser executado várias vezes, porque ignora registros que já existem. Cada execução de `teste_concorrencia.py` cria um exemplar novo (tombo `CONC-...`) no primeiro livro e, ao final, devolve o empréstimo.
+Desde o login, os scripts entram como bibliotecário e pedem a senha (ou leem `BOOKNET_SENHA`). Os três aceitam o IP do Computador A como argumento (ex.: `scripts\monitor_eventos.py 192.168.0.101`). `popular_dados.py` pode ser executado várias vezes, porque ignora registros que já existem. Cada execução de `teste_concorrencia.py` cria um exemplar novo (tombo `CONC-...`) no primeiro livro e, ao final, devolve o empréstimo.
 
 ## Testes automatizados
 
@@ -578,7 +628,7 @@ Os três aceitam o IP do Computador A como argumento (ex.: `scripts\monitor_even
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
 
-**91 testes passando.** Eles usam SQLite em memória e não acessam o `.env` nem o Neon, porque qualquer tentativa de conexão PostgreSQL é bloqueada. Os três serviços rodam dentro do processo de teste. As chamadas entre eles usam o cliente `httpx` real, com um transporte simulado que entrega cada pedido ao serviço de destino. Isso permite simular **serviço fora do ar** e **timeout** de forma controlada.
+**106 testes passando.** Eles usam SQLite em memória e não acessam o `.env` nem o Neon, porque qualquer tentativa de conexão PostgreSQL é bloqueada. Os três serviços rodam dentro do processo de teste. As chamadas entre eles usam o cliente `httpx` real, com um transporte simulado que entrega cada pedido ao serviço de destino. Isso permite simular **serviço fora do ar** e **timeout** de forma controlada.
 
 | Arquivo | Cobertura |
 | --- | --- |
@@ -586,6 +636,7 @@ Os três aceitam o IP do Computador A como argumento (ex.: `scripts\monitor_even
 | `tests/test_catalogo.py` | Rotas de sistema, CORS, livros, exemplares, busca, paginação, erros seguros e constraints. |
 | `tests/test_circulacao.py` | Usuários, fluxo completo de empréstimo e devolução, indisponibilidade, limite de 3, atraso, usuário e livro inativos, índice único parcial com **compensação**, filtros e constraints. |
 | `tests/test_eventos.py` | WebSocket (V2): boas-vindas e ping/pong, origem recusada (`1008`), broadcast para várias telas, ausência de evento em operação recusada, **um canal por serviço** e remoção de conexão quebrada. |
+| `tests/test_autenticacao.py` | Login: hash de senha, token adulterado/expirado/sem assinatura, mensagem genérica, aba errada, conta desativada, bloqueio após 5 erros, troca de senha, `401` sem login, `403` de aluno em rotas de bibliotecário, aluno só empresta e vê para si, WebSocket com token e filtrado por perfil. |
 | `tests/test_resiliencia.py` | V5: disjuntor, novas tentativas (seguras e proibidas), reconciliação e execução periódica. |
 | `tests/test_servicos.py` | V3: cada serviço expõe só as próprias rotas, token das rotas internas, retirada e liberação idempotente, Usuários fora do ar (`503`), Catálogo lento (`504`), devolução desfeita e repetida, compensação que falha, lista de empréstimos com os outros serviços fora do ar, cópia dos dados do momento e erro `500` remoto virando `503`. |
 
@@ -622,13 +673,14 @@ booknet/
 │   ├── errors.py               # respostas de erro seguras
 │   ├── eventos.py              # V2: canal WebSocket e broadcast de mensagens
 │   ├── origens.py              # origens permitidas (CORS e WebSocket)
-│   ├── dependencies/           # sessão de banco e token das rotas internas
+│   ├── autenticacao.py         # login: hash de senha (PBKDF2) e token de sessão (JWT)
+│   ├── dependencies/           # sessão de banco, sessão do usuário (perfis) e token interno
 │   ├── models/                 # Livro, Exemplar, Usuario, Emprestimo
 │   ├── schemas/                # validação Pydantic de entrada e saída
 │   └── routers/                # catalogo.py, usuarios.py, emprestimos.py
 ├── migrations/versions/        # 0001 catálogo · 0002 usuários e empréstimos · 0003 cópia de dados · 0004 V5
 ├── tests/                      # apoio.py e os testes de catálogo, circulação, eventos e serviços
-├── scripts/                    # iniciar_servicos, popular_dados, teste_concorrencia, monitor_eventos
+├── scripts/                    # iniciar_servicos, definir_senha, popular_dados, teste_concorrencia, monitor_eventos
 ├── cliente/                    # Cliente Web (V1–V3), Dockerfile com nginx (V4) e config.js da nuvem
 ├── servico-catalogo/           # README do Serviço de Catálogo
 ├── servico-usuarios/           # README do Serviço de Usuários

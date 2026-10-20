@@ -42,6 +42,7 @@ with (
     ),
 ):
     from backend import config, database
+    from backend.autenticacao import criar_token
     from backend.dependencies.database import get_db
     from backend.eventos import CentralDeEventos
     from backend.models.base import Base
@@ -187,9 +188,26 @@ class BancoIsoladoTestCase(unittest.TestCase):
         app_emprestimos.dependency_overrides[obter_servicos_remotos] = lambda: self.servicos
         self.addCleanup(app_emprestimos.dependency_overrides.clear)
 
+        # Login: por padrão, as requisições dos testes entram como bibliotecária.
+        self.token_bibliotecario = criar_token(999_999, "Bibliotecária de Teste", "BIBLIOTECARIO")
+
         self._contador_livros = 0
         self._contador_exemplares = 0
         self._contador_usuarios = 0
+
+    def token_de(self, usuario: dict) -> str:
+        return criar_token(usuario["id"], usuario["nome"], usuario["tipo"])
+
+    def cabecalhos(self, token=..., extras=None) -> dict:
+        """``token=...`` usa a bibliotecária; ``token=None`` envia sem login."""
+        token = self.token_bibliotecario if token is ... else token
+        cabecalhos = {"Authorization": f"Bearer {token}"} if token else {}
+        cabecalhos.update(extras or {})
+        return cabecalhos
+
+    async def http(self, method, target, payload=None, headers=None, token=...):
+        """Versão assíncrona de ``requisicao`` (para cenários com WebSocket)."""
+        return await _requisicao_asgi(method, target, payload, self.cabecalhos(token, headers))
 
     def _entregar(self, pedido: httpx.Request) -> httpx.Response:
         """Transporte simulado: roda dentro da thread da rota de Empréstimos."""
@@ -216,9 +234,11 @@ class BancoIsoladoTestCase(unittest.TestCase):
     def simular_falha(self, trecho: str, erro: Exception) -> None:
         self.falhas.append((trecho, erro))
 
-    def requisicao(self, method, target, payload=None, headers=None, servico=None):
+    def requisicao(self, method, target, payload=None, headers=None, servico=None, token=...):
         app = APPS[servico] if servico else None
-        return asyncio.run(_requisicao_asgi(method, target, payload, headers, app=app))
+        return asyncio.run(
+            _requisicao_asgi(method, target, payload, self.cabecalhos(token, headers), app=app)
+        )
 
     def criar_livro(self, **alteracoes):
         self._contador_livros += 1

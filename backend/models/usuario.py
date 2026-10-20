@@ -56,6 +56,10 @@ class Usuario(Base):
     # Login: só o hash da senha é guardado (PBKDF2-SHA256 com sal). Sem senha
     # definida, o usuário existe, mas ainda não consegue entrar no sistema.
     senha_hash: Mapped[str | None] = mapped_column(String(255))
+
+    @property
+    def tem_senha(self) -> bool:
+        return bool(self.senha_hash)
     criado_em: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

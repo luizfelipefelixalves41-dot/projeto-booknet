@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from backend.dependencies.database import get_db
 from backend.dependencies.interno import exigir_token_interno
+from backend.dependencies.sessao import exigir_bibliotecario, obter_sessao
 from backend.eventos import Central
 from backend.models.exemplar import Exemplar, StatusExemplar
 from backend.models.livro import Livro
@@ -17,8 +18,12 @@ from backend.schemas.exemplar import ExemplarCreate, ExemplarResponse, ExemplarR
 from backend.schemas.livro import LivroCreate, LivroResponse, LivroUpdate
 
 
-router = APIRouter(prefix="/livros", tags=["Catálogo"])
-router_exemplares = APIRouter(prefix="/exemplares", tags=["Catálogo"])
+# Consultar o acervo exige estar logado; cadastrar e editar exige ser bibliotecário.
+router = APIRouter(prefix="/livros", tags=["Catálogo"], dependencies=[Depends(obter_sessao)])
+router_exemplares = APIRouter(
+    prefix="/exemplares", tags=["Catálogo"], dependencies=[Depends(obter_sessao)]
+)
+SomenteBibliotecario = [Depends(exigir_bibliotecario)]
 # Rotas chamadas pelo Serviço de Empréstimos, não pelo navegador.
 router_interno = APIRouter(
     prefix="/interno/exemplares",
@@ -63,7 +68,11 @@ def consultar_livro(livro_id: LivroId, db: Banco) -> Livro:
 
 
 @router.post(
-    "", response_model=LivroResponse, status_code=status.HTTP_201_CREATED, summary="Cadastrar livro"
+    "",
+    response_model=LivroResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Cadastrar livro",
+    dependencies=SomenteBibliotecario,
 )
 def criar_livro(dados: LivroCreate, db: Banco, tarefas: BackgroundTasks, central: Central) -> Livro:
     livro = Livro(**dados.model_dump())
@@ -75,7 +84,10 @@ def criar_livro(dados: LivroCreate, db: Banco, tarefas: BackgroundTasks, central
     return livro
 
 
-@router.put("/{livro_id}", response_model=LivroResponse, summary="Atualizar livro")
+@router.put(
+    "/{livro_id}", response_model=LivroResponse, summary="Atualizar livro",
+    dependencies=SomenteBibliotecario,
+)
 def atualizar_livro(
     livro_id: LivroId, dados: LivroUpdate, db: Banco, tarefas: BackgroundTasks, central: Central
 ) -> Livro:
@@ -103,6 +115,7 @@ def listar_exemplares(livro_id: LivroId, db: Banco) -> list[Exemplar]:
     response_model=ExemplarResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Cadastrar exemplar",
+    dependencies=SomenteBibliotecario,
 )
 def criar_exemplar(
     livro_id: LivroId, dados: ExemplarCreate, db: Banco, tarefas: BackgroundTasks, central: Central

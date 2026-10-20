@@ -10,14 +10,18 @@ import json
 import unittest
 
 from tests.apoio import APPS, BancoIsoladoTestCase, _requisicao_asgi, app_emprestimos
+from backend.autenticacao import Sessao
 from backend.eventos import CentralDeEventos
 
 
 class ConexaoWS:
     """Cliente WebSocket mínimo falando ASGI diretamente com a aplicação."""
 
-    def __init__(self, origem: str | None = "http://localhost:8080", servico: str = "emprestimos"):
+    token_padrao: str | None = None  # definido em EventosTestes.setUp
+
+    def __init__(self, origem: str | None = "http://localhost:8080", servico: str = "emprestimos", token=...):
         self.origem = origem
+        self.token = self.token_padrao if token is ... else token
         self.app = APPS[servico]
         self.entrada: asyncio.Queue = asyncio.Queue()
         self.saida: asyncio.Queue = asyncio.Queue()
@@ -34,7 +38,7 @@ class ConexaoWS:
             "scheme": "ws",
             "path": "/ws/eventos",
             "raw_path": b"/ws/eventos",
-            "query_string": b"",
+            "query_string": f"token={self.token}".encode("ascii") if self.token else b"",
             "root_path": "",
             "headers": cabecalhos,
             "client": ("127.0.0.1", 50000),
@@ -68,6 +72,9 @@ class ConexaoWS:
 
 
 class EventosTestes(BancoIsoladoTestCase):
+    def setUp(self):
+        super().setUp()
+        ConexaoWS.token_padrao = self.token_bibliotecario
     def executar(self, cenario):
         return asyncio.run(cenario())
 
@@ -110,7 +117,7 @@ class EventosTestes(BancoIsoladoTestCase):
                 await tela.abrir()
             self.assertEqual((await telas[1].receber("conectado"))["dados"], {"conexoes": 2})
 
-            resposta = await _requisicao_asgi(
+            resposta = await self.http(
                 "POST", "/emprestimos", {"usuario_id": usuario["id"], "exemplar_id": exemplar["id"]}
             )
             self.assertEqual(resposta.status_code, 201)
@@ -120,7 +127,7 @@ class EventosTestes(BancoIsoladoTestCase):
                 self.assertEqual(evento["dados"]["usuario_nome"], "André")
                 self.assertTrue(evento["momento"])
 
-            devolucao = await _requisicao_asgi("POST", f"/emprestimos/{resposta.json()['id']}/devolucao")
+            devolucao = await self.http("POST", f"/emprestimos/{resposta.json()['id']}/devolucao")
             for tela in telas:
                 evento = await tela.receber("emprestimo.devolvido")
                 self.assertEqual(evento["dados"]["status"], "DEVOLVIDO")
@@ -139,11 +146,11 @@ class EventosTestes(BancoIsoladoTestCase):
             await ws.abrir()
             await ws.receber("conectado")
             await ws.receber("conexoes.alteradas")
-            falha = await _requisicao_asgi(
+            falha = await self.http(
                 "POST", "/emprestimos", {"usuario_id": 99999, "exemplar_id": exemplar["id"]}
             )
             self.assertEqual(falha.status_code, 404)
-            duplicado = await _requisicao_asgi(
+            duplicado = await self.http(
                 "POST", "/livros", {"titulo": "X", "autor": "Y", "isbn": livro["isbn"]}
             )
             self.assertEqual(duplicado.status_code, 409)
@@ -159,15 +166,15 @@ class EventosTestes(BancoIsoladoTestCase):
             for canal in canais.values():
                 await canal.abrir()
                 await canal.receber("conexoes.alteradas")
-            livro = (await _requisicao_asgi(
+            livro = (await self.http(
                 "POST", "/livros", {"titulo": "Novo", "autor": "Autora", "isbn": "000999"}
             )).json()
             self.assertEqual((await canais["catalogo"].receber("livro.criado"))["dados"], livro)
-            await _requisicao_asgi("POST", f"/livros/{livro['id']}/exemplares", {"codigo_tombo": "EV-1"})
+            await self.http("POST", f"/livros/{livro['id']}/exemplares", {"codigo_tombo": "EV-1"})
             self.assertEqual(
                 (await canais["catalogo"].receber("exemplar.criado"))["dados"]["codigo_tombo"], "EV-1"
             )
-            await _requisicao_asgi(
+            await self.http(
                 "POST", "/usuarios", {"nome": "Ana", "email": "ana@booknet.test", "matricula": "EV-9"}
             )
             self.assertEqual((await canais["usuarios"].receber("usuario.criado"))["dados"]["nome"], "Ana")
@@ -194,7 +201,8 @@ class EventosTestes(BancoIsoladoTestCase):
 
         nova = CentralDeEventos()
         saudavel = Saudavel()
-        nova._conexoes.update({Quebrada(), saudavel})
+        sessao = Sessao(usuario_id=1, nome="Bibliotecária", papel="BIBLIOTECARIO")
+        nova._conexoes.update({Quebrada(): sessao, saudavel: sessao})
         with self.assertLogs("booknet.eventos", level="INFO"):
             asyncio.run(nova.publicar("teste", {"n": 1}))
         self.assertEqual(nova.total, 1)
